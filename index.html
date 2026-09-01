@@ -18,12 +18,12 @@
      próprios processos (localStorage), sem sincronizar com os outros.
      ====================================================================== */
   window.PROCESSFLOW_FIREBASE_CONFIG = {
-    apiKey: "AIzaSyACKShbrzAe0nJQKIvt5o47Vvo7lfserog",
-    authDomain: "processflow-painel.firebaseapp.com",
-    projectId: "processflow-painel",
-    storageBucket: "processflow-painel.firebasestorage.app",
-    messagingSenderId: "930994700689",
-    appId: "1:930994700689:web:debb6e48e413fbc7f25a30"
+    apiKey: "COLE_AQUI",
+    authDomain: "SEU-PROJETO.firebaseapp.com",
+    projectId: "SEU-PROJETO",
+    storageBucket: "SEU-PROJETO.appspot.com",
+    messagingSenderId: "COLE_AQUI",
+    appId: "COLE_AQUI"
   };
 </script>
 <style>
@@ -1310,9 +1310,9 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
 
     if (el.type === "pool") {
       body =
-        '<rect x="0" y="0" width="' + el.w + '" height="' + el.h + '" rx="4" fill="var(--pool-fill)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>' +
-        '<rect x="0" y="0" width="34" height="' + el.h + '" fill="var(--ink)" />' +
-        '<text x="17" y="' + el.h / 2 + '" fill="var(--paper)" font-family="var(--font-mono)" font-size="13" text-anchor="middle" transform="rotate(-90 17 ' + el.h / 2 + ')">' + escapeXML(el.label) + "</text>";
+        '<rect class="pool-body-fill" x="0" y="0" width="' + el.w + '" height="' + el.h + '" rx="4" fill="var(--pool-fill)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>' +
+        '<rect class="pool-header-strip" x="0" y="0" width="34" height="' + el.h + '" fill="var(--ink)" />' +
+        '<text class="pool-header-label" x="17" y="' + el.h / 2 + '" fill="var(--paper)" font-family="var(--font-mono)" font-size="13" text-anchor="middle" transform="rotate(-90 17 ' + el.h / 2 + ')">' + escapeXML(el.label) + "</text>";
       if (isSelected) {
         body += '<rect class="resize-handle" data-id="' + el.id + '" x="' + (el.w - 14) + '" y="' + (el.h - 14) + '" width="14" height="14" rx="3"/>';
       }
@@ -1493,7 +1493,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       '<pattern id="dotgrid" width="22" height="22" patternUnits="userSpaceOnUse">' +
       '<circle cx="2" cy="2" r="1.3" fill="var(--paper-grid)"/></pattern></defs>'
     );
-    svgParts.push('<rect x="0" y="0" width="' + CANVAS_W + '" height="' + CANVAS_H + '" fill="url(#dotgrid)"/>');
+    svgParts.push('<rect class="canvas-bg" x="0" y="0" width="' + CANVAS_W + '" height="' + CANVAS_H + '" fill="url(#dotgrid)"/>');
     pools.forEach(function (el) { svgParts.push(shapeSVG(el, el.id === state.selectedId, !!(state.connectFrom && state.connectFrom.id === el.id))); });
     view.flows.forEach(function (f) { svgParts.push(flowSVG(f, f.id === state.selectedFlowId)); });
     others.forEach(function (el) { svgParts.push(shapeSVG(el, el.id === state.selectedId, !!(state.connectFrom && state.connectFrom.id === el.id))); });
@@ -1886,10 +1886,6 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     showToast("Processo salvo.");
   }
 
-  function currentDiagramTitle() {
-    return state.viewStack.map(function (v) { return v.ownerEl ? v.ownerEl.label : state.current.name; }).join(" – ");
-  }
-
   function sanitizeFileName(name) {
     return (name || "processo").replace(/[^a-z0-9\-_ ]/gi, "").trim() || "processo";
   }
@@ -1923,7 +1919,9 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     clone.setAttribute("height", CANVAS_H);
     clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     inlineComputedStyleVars(clone);
-    Array.prototype.forEach.call(clone.querySelectorAll(".resize-handle, .port-handle, .seg-handle, .endpoint-handle"), function (n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll(".resize-handle, .port-handle, .seg-handle, .endpoint-handle, .canvas-bg"), function (n) { n.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll(".pool-body-fill, .pool-header-strip"), function (r) { r.setAttribute("fill", "none"); });
+    Array.prototype.forEach.call(clone.querySelectorAll(".pool-header-label"), function (t) { t.setAttribute("fill", "var(--ink)"); });
     return new XMLSerializer().serializeToString(clone);
   }
 
@@ -2008,25 +2006,29 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     var img = await loadImageFromMarkup(snapshot.svgMarkup);
     if (!img) return [];
 
-    var outRes = 2; // raster resolution multiplier, independent of page layout
+    var outRes = 2; // raster resolution multiplier, relative to the FINAL printed size
     var fitScale = Math.min(layout.contentW / bbox.w, layout.contentH / bbox.h);
     var useSinglePage = fitScale >= 0.55;
     var pages = [];
 
-    function makeCanvas(sx, sy, sw, sh) {
+    function makeCanvas(sx, sy, sw, sh, outW, outH) {
       var canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(sw * outRes));
-      canvas.height = Math.max(1, Math.round(sh * outRes));
+      canvas.width = Math.max(1, Math.round(outW));
+      canvas.height = Math.max(1, Math.round(outH));
       var ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#EFF1EA";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
       return canvas;
     }
 
     if (useSinglePage) {
+      // Render straight to the size it will actually be printed at (× outRes
+      // for retina sharpness) instead of the full pre-shrink source size —
+      // rendering a diagram that gets shrunk to half size at its original
+      // resolution just bloats the file with pixels nobody will see.
       var scale = Math.min(fitScale, 1.3);
-      pages.push({ canvas: makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h), w: bbox.w * scale, h: bbox.h * scale });
+      var printW = bbox.w * scale, printH = bbox.h * scale;
+      var canvas = makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h, printW * outRes, printH * outRes);
+      pages.push({ canvas: canvas, w: printW, h: printH });
     } else {
       var tileW = layout.contentW;
       var tileH = layout.contentH;
@@ -2038,7 +2040,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
           var sy = bbox.y + r * tileH;
           var sw = Math.min(tileW, bbox.x + bbox.w - sx);
           var sh = Math.min(tileH, bbox.y + bbox.h - sy);
-          pages.push({ canvas: makeCanvas(sx, sy, sw, sh), w: sw, h: sh });
+          pages.push({ canvas: makeCanvas(sx, sy, sw, sh, sw * outRes, sh * outRes), w: sw, h: sh });
         }
       }
     }
@@ -2052,44 +2054,35 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     var groups = [];
     for (var i = 0; i < diagrams.length; i++) {
       var pages = await renderDiagramPages(diagrams[i].elements, diagrams[i].flows, layout);
-      groups.push({ title: diagrams[i].title, code: diagrams[i].code, pages: pages });
+      groups.push({ title: diagrams[i].title, pages: pages });
     }
     return { groups: groups, layout: layout };
   }
 
-  function drawPdfPageBackground(pdf, layout) {
-    pdf.setFillColor(239, 241, 234); // --paper
-    pdf.rect(0, 0, layout.PAGE_W, layout.PAGE_H, "F");
-    pdf.setFillColor(43, 110, 99); // --accent, top cover band
-    pdf.rect(0, 0, layout.PAGE_W, 5, "F");
-  }
-
   function drawPdfHeader(pdf, layout, title, subtitle, logoInfo) {
-    pdf.setDrawColor(206, 211, 197);
-    pdf.setLineWidth(1);
-    pdf.line(layout.MARGIN, layout.HEADER_H - 10, layout.PAGE_W - layout.MARGIN, layout.HEADER_H - 10);
+    // Full-width dark band, edge to edge — the page itself stays plain white.
+    pdf.setFillColor(23, 27, 36); // --ink
+    pdf.rect(0, 0, layout.PAGE_W, layout.HEADER_H, "F");
+
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(17);
-    pdf.setTextColor(23, 27, 36);
-    pdf.text(title, layout.MARGIN, layout.HEADER_H / 2 - 1);
+    pdf.setTextColor(239, 241, 234); // --paper (light text on the dark band)
+    pdf.text(title, layout.MARGIN, layout.HEADER_H / 2 - 2);
+
     if (subtitle) {
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(9.5);
-      pdf.setTextColor(98, 107, 92);
+      pdf.setTextColor(176, 184, 199);
       pdf.text(subtitle, layout.MARGIN, layout.HEADER_H / 2 + 15);
     }
+
     if (logoInfo) {
       try {
-        var logoH = 26;
+        var logoH = 30;
         var logoW = logoInfo.width * (logoH / logoInfo.height);
-        var padX = 10, padY = 8;
-        var boxW = logoW + padX * 2;
-        var boxH = logoH + padY * 2;
-        var boxX = layout.PAGE_W - layout.MARGIN - boxW;
-        var boxY = (layout.HEADER_H - boxH) / 2 - 3;
-        pdf.setFillColor(23, 27, 36);
-        pdf.roundedRect(boxX, boxY, boxW, boxH, 4, 4, "F");
-        pdf.addImage(logoInfo.dataUrl, "PNG", boxX + padX, boxY + padY, logoW, logoH);
+        var logoX = layout.PAGE_W - layout.MARGIN - logoW;
+        var logoY = (layout.HEADER_H - logoH) / 2;
+        pdf.addImage(logoInfo.dataUrl, "PNG", logoX, logoY, logoW, logoH);
       } catch (e) {
         console.error("Could not draw logo in PDF header", e);
       }
@@ -2098,7 +2091,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
 
   function drawPdfFooter(pdf, layout, pageNum, totalPages, generatedAt) {
     var y = layout.PAGE_H - layout.FOOTER_H + 10;
-    pdf.setDrawColor(206, 211, 197);
+    pdf.setDrawColor(221, 225, 213);
     pdf.setLineWidth(1);
     pdf.line(layout.MARGIN, y - 12, layout.PAGE_W - layout.MARGIN, y - 12);
     pdf.setFont("helvetica", "normal");
@@ -2122,9 +2115,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       g.pages.forEach(function (pg, idx) {
         pageNum++;
         if (pageNum > 1) pdf.addPage([layout.PAGE_W, layout.PAGE_H], "landscape");
-        drawPdfPageBackground(pdf, layout);
         var partBadge = g.pages.length > 1 ? "parte " + (idx + 1) + " de " + g.pages.length : null;
-        var subtitle = "Diagrama de processo · BPMN" + (g.code ? "  ·  " + g.code : "") + (partBadge ? "  ·  " + partBadge : "");
+        var subtitle = "Diagrama de processo · BPMN" + (partBadge ? "  ·  " + partBadge : "");
         drawPdfHeader(pdf, layout, g.title, subtitle, logoInfo);
 
         var availW = layout.contentW - framePad * 2;
@@ -2134,7 +2126,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         var offsetX = layout.MARGIN + framePad + (availW - drawW) / 2;
         var offsetY = layout.HEADER_H + layout.MARGIN + framePad + (availH - drawH) / 2;
 
-        pdf.setDrawColor(206, 211, 197);
+        pdf.setDrawColor(221, 225, 213);
         pdf.setLineWidth(1);
         pdf.setFillColor(255, 255, 255);
         pdf.rect(offsetX - framePad, offsetY - framePad, drawW + framePad * 2, drawH + framePad * 2, "FD");
@@ -2179,11 +2171,28 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     };
   }
 
+  // Walks a process's diagram and every subprocess detail nested inside it
+  // (however deep), returning one report section per diagram so the PDF
+  // includes each subprocess's breakdown right after its parent.
+  function collectDiagramsForProcess(process) {
+    var diagrams = [];
+    function walk(elements, flows, titleParts) {
+      diagrams.push({ title: titleParts.join(" – "), elements: elements, flows: flows });
+      elements.forEach(function (el) {
+        if (el.type === "subprocess" && el.subElements && el.subElements.length) {
+          walk(el.subElements, el.subFlows || [], titleParts.concat([el.label]));
+        }
+      });
+    }
+    walk(process.elements, process.flows, [process.name]);
+    return diagrams;
+  }
+
   function exportCurrentDiagram() {
+    if (!state.current) return;
     showToast("Preparando pré-visualização...");
-    var title = currentDiagramTitle();
-    var code = state.current ? processCode({ id: state.current.id }) : null;
-    var diagrams = [{ title: title, elements: currentView().elements, flows: currentView().flows, code: code }];
+    var title = state.current.name;
+    var diagrams = collectDiagramsForProcess(state.current);
     Promise.all([generateExportPlan(diagrams), loadLogoImage()]).then(function (results) {
       var exportPlan = results[0], logoInfo = results[1];
       if (!exportPlan.groups[0] || !exportPlan.groups[0].pages.length) {
@@ -2207,8 +2216,9 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
   function exportAllProcesses() {
     if (!state.processes.length) { showToast("Nenhum processo para exportar."); return; }
     showToast("Preparando pré-visualização...");
-    var diagrams = state.processes.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
-      .map(function (p) { return { title: p.name, elements: p.elements, flows: p.flows, code: processCode(p) }; });
+    var sorted = state.processes.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+    var diagrams = [];
+    sorted.forEach(function (p) { diagrams = diagrams.concat(collectDiagramsForProcess(p)); });
     Promise.all([generateExportPlan(diagrams), loadLogoImage()]).then(function (results) {
       var exportPlan = results[0], logoInfo = results[1];
       openExportPreview(exportPlan, function () {
