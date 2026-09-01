@@ -1,0 +1,2351 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ProcessFlow — Gestão de Processos BPMN</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script>
+  /* ======================================================================
+     FIREBASE CONFIG — cole aqui a configuração do SEU projeto Firebase
+     para ativar o compartilhamento em tempo real entre o grupo.
+     Veja o passo a passo em README.md. Sem isso preenchido, o app
+     continua funcionando normalmente, mas cada navegador guarda seus
+     próprios processos (localStorage), sem sincronizar com os outros.
+     ====================================================================== */
+  window.PROCESSFLOW_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyACKShbrzAe0nJQKIvt5o47Vvo7lfserog",
+    authDomain: "processflow-painel.firebaseapp.com",
+    projectId: "processflow-painel",
+    storageBucket: "processflow-painel.firebasestorage.app",
+    messagingSenderId: "930994700689",
+    appId: "1:930994700689:web:debb6e48e413fbc7f25a30"
+  };
+</script>
+<style>
+:root {
+  --ink: #171b24;
+  --ink-soft: #545d70;
+  --paper: #eff1ea;
+  --paper-grid: #d7dbce;
+  --surface: #ffffff;
+  --pool-fill: #f6f7f2;
+  --border: #dde1d5;
+  --accent: #2b6e63;
+  --accent-dark: #1f544b;
+  --accent-soft: #dcece7;
+  --flow-event: #2f5fa8;
+  --flow-task: #2b6e63;
+  --flow-gateway: #c9862e;
+  --danger: #b8483c;
+  --text: #171b24;
+  --text-muted: #626b5c;
+  --line: #4a5568;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--paper);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+#app { height: 100vh; display: flex; flex-direction: column; }
+.hidden { display: none !important; }
+
+/* ---------- Dashboard ---------- */
+
+#dashboardView { display: flex; height: 100%; }
+
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.brand { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-bottom: 40px; }
+.brand-logo { display: block; max-width: 100%; height: auto; }
+.brand-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--paper);
+  opacity: 0.82;
+}
+
+.sidebar-note {
+  font-size: 12.5px;
+  color: #9aa3b5;
+  line-height: 1.6;
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid #2a3040;
+}
+.sidebar-note strong { color: var(--paper); }
+
+.legend { margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: #b8bfcc; }
+.legend li { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.legend .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+.dashboard-main { flex: 1; overflow-y: auto; padding: 40px 48px; }
+.dashboard-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.dashboard-header h1 { font-family: var(--font-display); font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+.dashboard-sub { color: var(--text-muted); font-size: 14px; margin: 0 0 28px; }
+
+.process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+
+.process-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stamp {
+  position: absolute;
+  top: 14px; right: 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  transform: rotate(2deg);
+  letter-spacing: 0.03em;
+}
+
+.pc-title { font-family: var(--font-display); font-size: 16px; margin: 4px 0 0; padding-right: 70px; line-height: 1.3; }
+
+.badge { align-self: flex-start; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent-dark); }
+
+.pc-meta { font-size: 12.5px; color: var(--text-muted); margin: 0; }
+.pc-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+
+.empty-state { padding: 60px 20px; text-align: center; color: var(--text-muted); }
+.empty-title { font-family: var(--font-display); font-size: 18px; color: var(--text); margin: 0 0 6px; }
+.empty-sub { font-size: 14px; margin: 0; }
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+.btn:active { transform: translateY(1px); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-dark); }
+.btn-ghost { background: transparent; border-color: var(--border); color: var(--text); }
+.btn-ghost:hover { background: var(--paper); }
+.btn-danger { background: #fff; border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
+.btn-block { width: 100%; margin-top: 14px; }
+.btn-icon { padding: 8px 12px; }
+.btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ---------- Editor ---------- */
+
+#editorView { display: flex; flex-direction: column; height: 100%; }
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  background: var(--ink);
+  color: var(--paper);
+  flex-shrink: 0;
+}
+.toolbar-sep { width: 1px; height: 26px; background: #333c4d; }
+.toolbar-logo { height: 24px; width: auto; display: block; flex-shrink: 0; }
+#procNameInput {
+  font-family: var(--font-display);
+  font-size: 15px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--paper);
+  padding: 6px 8px;
+  border-radius: 6px;
+  min-width: 220px;
+}
+#procNameInput:hover, #procNameInput:focus { border-color: #3a4256; outline: none; background: #1f2531; }
+.toolbar .spacer { flex: 1; }
+.tool-group { display: flex; gap: 6px; background: #1f2531; padding: 4px; border-radius: 9px; }
+.tool-group .btn { background: transparent; color: #cfd4de; padding: 7px 12px; }
+.tool-group .btn.active { background: var(--accent); color: #fff; }
+
+.editor-body { display: flex; flex: 1; min-height: 0; }
+
+.breadcrumb-bar {
+  padding: 9px 22px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.breadcrumb-bar .sep { margin: 0 8px; color: var(--border); }
+.breadcrumb-bar .crumb-link { background: none; border: none; color: var(--accent); cursor: pointer; font-weight: 600; font-size: 12.5px; padding: 0; font-family: var(--font-body); }
+.breadcrumb-bar .crumb-link:hover { text-decoration: underline; }
+.breadcrumb-bar .crumb-current { font-weight: 600; color: var(--text); }
+
+.resize-handle { fill: var(--accent); stroke: #fff; stroke-width: 1.5; cursor: nwse-resize; }
+.subprocess-expand { cursor: pointer; }
+.subprocess-expand:hover rect:nth-child(2) { stroke-width: 2.4; }
+.seg-handle { fill: var(--surface); stroke: var(--accent); stroke-width: 1.8; cursor: move; }
+.seg-handle:hover { fill: var(--accent-soft); }
+.endpoint-handle { stroke: var(--accent); stroke-width: 1.8; cursor: pointer; }
+.endpoint-handle:hover { stroke-width: 2.6; }
+.flow-hit:hover { cursor: pointer; }
+.port-handle { cursor: crosshair; transition: r 0.1s; }
+.port-handle:hover { r: 8; }
+.note-icon { cursor: default; }
+
+.note-tooltip {
+  position: fixed;
+  max-width: 240px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12.5px;
+  line-height: 1.45;
+  padding: 8px 11px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.28);
+  z-index: 200;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  white-space: pre-wrap;
+}
+.note-tooltip.show { opacity: 1; }
+
+.palette {
+  width: 190px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 16px 14px;
+}
+.palette-group h4 {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 14px 0 8px;
+}
+.palette-group:first-child h4 { margin-top: 0; }
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  margin-bottom: 7px;
+  font-size: 12.5px;
+  cursor: grab;
+  background: var(--surface);
+}
+.palette-item:hover { background: var(--paper); }
+.pi-icon { width: 18px; height: 18px; flex-shrink: 0; border-radius: 3px; border: 2px solid var(--line); }
+.pi-start { border-radius: 50%; border-color: var(--flow-event); }
+.pi-end { border-radius: 50%; border-color: var(--flow-event); border-width: 3px; }
+.pi-intermediate { border-radius: 50%; border-color: var(--flow-event); box-shadow: inset 0 0 0 2px var(--surface), inset 0 0 0 3px var(--flow-event); }
+.pi-task, .pi-subprocess { border-color: var(--flow-task); }
+.pi-gatewayExclusive, .pi-gatewayParallel { border-color: var(--flow-gateway); transform: rotate(45deg); border-radius: 2px; }
+.pi-pool { border-color: var(--ink); }
+
+.canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--paper);
+}
+#diagramSvg { display: block; background: var(--paper); cursor: default; }
+#diagramSvg.connect-mode { cursor: crosshair; }
+.shape { cursor: grab; }
+.shape:active { cursor: grabbing; }
+.flow-hit { cursor: pointer; }
+
+.inspector {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 18px 16px;
+  overflow-y: auto;
+}
+.insp-title { font-family: var(--font-display); font-size: 14px; margin: 0 0 12px; }
+
+.field-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 12px 0 6px;
+}
+.field-label:first-of-type { margin-top: 0; }
+.text-input, textarea.text-input {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  background: var(--paper);
+}
+textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
+.text-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; background: #fff; }
+
+.modal-text { font-size: 13.5px; color: var(--text-muted); line-height: 1.5; }
+
+/* ---------- Modal ---------- */
+
+#modalOverlay {
+  position: fixed; inset: 0;
+  background: rgba(23, 27, 36, 0.5);
+  display: none;
+  align-items: center; justify-content: center;
+  z-index: 50;
+}
+#modalOverlay.show { display: flex; }
+.modal-box {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 26px 26px 22px;
+  width: 380px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+}
+.modal-title { font-family: var(--font-display); font-size: 18px; margin: 0 0 4px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+.modal-box.modal-wide { width: 720px; max-width: 92vw; }
+.pdf-preview-scroll {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px 2px;
+  margin-top: 10px;
+}
+.pdf-preview-page {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+.pdf-preview-page img { width: 100%; display: block; border-bottom: 1px solid var(--border); }
+.pdf-preview-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  padding: 6px 8px;
+  line-height: 1.3;
+}
+
+/* ---------- Toast ---------- */
+
+#toast {
+  position: fixed;
+  bottom: 24px; left: 50%;
+  transform: translate(-50%, 20px);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 11px 20px;
+  border-radius: 9px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  z-index: 100;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 860px) {
+  .sidebar { width: 76px; padding: 20px 12px; }
+  .brand-name, .brand-logo, .sidebar-note { display: none; }
+  .palette { width: 140px; }
+  .inspector { width: 190px; }
+  .toolbar-logo { display: none; }
+}
+
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= DASHBOARD ================= -->
+  <div id="dashboardView">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="logo.png" alt="Logo" class="brand-logo" onerror="this.style.display='none'"/>
+        <span class="brand-name">ProcessFlow</span>
+      </div>
+      <div>
+        <p style="font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:#8a92a5; margin:0 0 10px;">Legenda BPMN</p>
+        <ul class="legend">
+          <li><span class="dot" style="background:var(--flow-event)"></span> Eventos</li>
+          <li><span class="dot" style="background:var(--flow-task)"></span> Tarefas / Subprocessos</li>
+          <li><span class="dot" style="background:var(--flow-gateway)"></span> Gateways / Decisões</li>
+        </ul>
+      </div>
+      <p class="sidebar-note"><strong>Sobre os dados</strong><br/>Este arquivo funciona sozinho, sem servidor. Os processos ficam salvos neste navegador. Use "Exportar dados" e envie o arquivo para o grupo importar e continuar editando junto.</p>
+    </aside>
+
+    <main class="dashboard-main">
+      <div class="dashboard-header">
+        <h1>Seus processos</h1>
+        <div style="display:flex; gap:10px;">
+          <input type="file" id="importFileInput" accept="application/json" style="display:none" />
+          <button class="btn btn-ghost" id="btnImportData">Importar dados</button>
+          <button class="btn btn-ghost" id="btnExportData">Exportar dados</button>
+          <button class="btn btn-ghost" id="btnExportAllPdf">Exportar tudo (PDF)</button>
+          <button class="btn btn-primary" id="btnNewProcess">+ Novo processo</button>
+        </div>
+      </div>
+      <p class="dashboard-sub">Desenhe, salve e exporte fluxogramas em notação BPMN — com raias, subprocessos detalháveis e gateways. Já preenchemos um exemplo para você testar.</p>
+      <div class="process-grid" id="processList"></div>
+    </main>
+  </div>
+
+  <!-- ================= EDITOR ================= -->
+  <div id="editorView" class="hidden">
+    <div class="toolbar">
+      <img src="logo.png" alt="Logo" class="toolbar-logo" onerror="this.style.display='none'"/>
+      <button class="btn btn-ghost" id="btnBack" style="color:var(--paper); border-color:#333c4d;">← Voltar</button>
+      <div class="toolbar-sep"></div>
+      <input type="text" id="procNameInput" placeholder="Nome do processo" />
+      <div class="spacer"></div>
+      <div class="tool-group">
+        <button class="btn" id="btnSelect">Selecionar</button>
+        <button class="btn" id="btnConnect">Conectar</button>
+      </div>
+      <div class="toolbar-sep"></div>
+      <button class="btn btn-ghost" id="btnSave" style="color:var(--paper); border-color:#333c4d;">Salvar</button>
+      <button class="btn btn-primary" id="btnExport">Exportar PDF</button>
+    </div>
+
+    <div class="breadcrumb-bar" id="breadcrumbBar"></div>
+
+    <div class="editor-body">
+      <div class="palette" id="paletteBody"></div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <svg id="diagramSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+      <div class="inspector" id="inspector"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ================= MODAL ================= -->
+<div id="modalOverlay">
+  <div class="modal-box" id="modalBody"></div>
+</div>
+
+<div id="toast"></div>
+<div id="noteTooltip" class="note-tooltip"></div>
+
+<script>
+/* ProcessFlow — BPMN dashboard logic (v2) */
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "processflow:processes";
+  var CANVAS_W = 1800;
+  var CANVAS_H = 1100;
+  var MIN_POOL_W = 260;
+  var MIN_POOL_H = 120;
+
+  var PALETTE = [
+    { type: "start", label: "Início", group: "Eventos" },
+    { type: "end", label: "Fim", group: "Eventos" },
+    { type: "intermediate", label: "Evento Intermediário", group: "Eventos" },
+    { type: "task", label: "Tarefa", group: "Atividades" },
+    { type: "subprocess", label: "Subprocesso", group: "Atividades" },
+    { type: "gatewayExclusive", label: "Decisão", group: "Gateways" },
+    { type: "gatewayParallel", label: "Paralelo", group: "Gateways" },
+    { type: "pool", label: "Raia / Pool", group: "Estrutura" }
+  ];
+
+  var DEFAULT_SIZE = {
+    start: { w: 46, h: 46 },
+    end: { w: 46, h: 46 },
+    intermediate: { w: 46, h: 46 },
+    task: { w: 160, h: 74 },
+    subprocess: { w: 180, h: 84 },
+    gatewayExclusive: { w: 54, h: 54 },
+    gatewayParallel: { w: 54, h: 54 },
+    pool: { w: 420, h: 220 }
+  };
+
+  var DEFAULT_LABEL = {
+    start: "Início",
+    end: "Fim",
+    intermediate: "Evento",
+    task: "Nova tarefa",
+    subprocess: "Subprocesso",
+    gatewayExclusive: "Decisão?",
+    gatewayParallel: "Paralelo",
+    pool: "Departamento"
+  };
+
+  var state = {
+    processes: [],
+    current: null,
+    viewStack: [], // [{ elements, flows, ownerEl }]
+    tool: "select",
+    connectFrom: null,
+    selectedId: null,
+    selectedFlowId: null,
+    dragGuides: []
+  };
+
+  var els = {};
+  var measureCtx = document.createElement("canvas").getContext("2d");
+
+  function uid(prefix) {
+    return (prefix || "id") + "_" + Math.random().toString(36).slice(2, 9);
+  }
+
+  function escapeXML(str) {
+    return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c];
+    });
+  }
+
+  function formatDate(ts) {
+    var d = new Date(ts);
+    return d.toLocaleDateString("pt-BR") + " " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function processCode(p) {
+    return "BPM-" + p.id.replace(/[^a-z0-9]/gi, "").slice(-4).toUpperCase();
+  }
+
+  /* ---------------- Flow routing (side ports + 90° elbow routing + manual waypoints) ---------------- */
+
+  var SIDES = ["top", "right", "bottom", "left"];
+
+  function sidePoint(el, side) {
+    if (side === "top") return { x: el.x + el.w / 2, y: el.y };
+    if (side === "bottom") return { x: el.x + el.w / 2, y: el.y + el.h };
+    if (side === "left") return { x: el.x, y: el.y + el.h / 2 };
+    return { x: el.x + el.w, y: el.y + el.h / 2 }; // right
+  }
+
+  function sideIsHorizontal(side) {
+    return side === "left" || side === "right";
+  }
+
+  function autoSide(el, towardPoint) {
+    var c = centerOf(el);
+    var dx = towardPoint.x - c.x;
+    var dy = towardPoint.y - c.y;
+    if (Math.abs(dx) > Math.abs(dy)) return dx >= 0 ? "right" : "left";
+    return dy >= 0 ? "bottom" : "top";
+  }
+
+  function dedupePoints(pts) {
+    var cleaned = [pts[0]];
+    for (var i = 1; i < pts.length; i++) {
+      var prev = cleaned[cleaned.length - 1];
+      if (Math.abs(pts[i].x - prev.x) > 0.5 || Math.abs(pts[i].y - prev.y) > 0.5) cleaned.push(pts[i]);
+    }
+    return cleaned;
+  }
+
+  function orthogonalRoute(flow) {
+    var a = elementById(flow.from);
+    var b = elementById(flow.to);
+    var sideA = flow.fromSide || autoSide(a, centerOf(b));
+    var sideB = flow.toSide || autoSide(b, centerOf(a));
+    var p1 = sidePoint(a, sideA);
+    var p2 = sidePoint(b, sideB);
+    var horizA = sideIsHorizontal(sideA);
+    var horizB = sideIsHorizontal(sideB);
+    var pts;
+    if (horizA && horizB) {
+      var midX = (p1.x + p2.x) / 2;
+      pts = [p1, { x: midX, y: p1.y }, { x: midX, y: p2.y }, p2];
+    } else if (!horizA && !horizB) {
+      var midY = (p1.y + p2.y) / 2;
+      pts = [p1, { x: p1.x, y: midY }, { x: p2.x, y: midY }, p2];
+    } else if (horizA && !horizB) {
+      pts = [p1, { x: p2.x, y: p1.y }, p2];
+    } else {
+      pts = [p1, { x: p1.x, y: p2.y }, p2];
+    }
+    pts = dedupePoints(pts);
+    var obstacles = currentView().elements.filter(function (o) {
+      return o.type !== "pool" && o.id !== flow.from && o.id !== flow.to;
+    });
+    pts = avoidObstacles(pts, obstacles);
+    return pts;
+  }
+
+  // Segment-vs-rect intersection test for axis-aligned orthogonal segments.
+  function segCrossesRect(p1, p2, rect) {
+    if (Math.abs(p1.y - p2.y) < 0.5) { // horizontal
+      var y = p1.y;
+      var xMin = Math.min(p1.x, p2.x), xMax = Math.max(p1.x, p2.x);
+      return y > rect.y && y < rect.y + rect.h && xMax > rect.x && xMin < rect.x + rect.w;
+    }
+    if (Math.abs(p1.x - p2.x) < 0.5) { // vertical
+      var x = p1.x;
+      var yMin = Math.min(p1.y, p2.y), yMax = Math.max(p1.y, p2.y);
+      return x > rect.x && x < rect.x + rect.w && yMax > rect.y && yMin < rect.y + rect.h;
+    }
+    return false;
+  }
+
+  // Nudges an orthogonal path so its segments detour around obstacle bounding
+  // boxes instead of cutting through them (a small margin is added around
+  // each obstacle). Runs a few passes to resolve simple cascades.
+  function avoidObstacles(pts, obstacles) {
+    if (!obstacles.length) return pts;
+    var margin = 14;
+    var result = pts.slice();
+    for (var pass = 0; pass < 6; pass++) {
+      var changed = false;
+      for (var i = 0; i < result.length - 1; i++) {
+        var p1 = result[i], p2 = result[i + 1];
+        var horiz = Math.abs(p1.y - p2.y) < 0.5;
+        for (var k = 0; k < obstacles.length; k++) {
+          var o = obstacles[k];
+          var rect = { x: o.x - margin, y: o.y - margin, w: o.w + margin * 2, h: o.h + margin * 2 };
+          if (segCrossesRect(p1, p2, rect)) {
+            if (horiz) {
+              var goAbove = Math.abs(p1.y - rect.y) <= Math.abs(p1.y - (rect.y + rect.h));
+              var newY = goAbove ? rect.y : rect.y + rect.h;
+              result.splice(i + 1, 0, { x: p1.x, y: newY }, { x: p2.x, y: newY });
+            } else {
+              var goLeft = Math.abs(p1.x - rect.x) <= Math.abs(p1.x - (rect.x + rect.w));
+              var newX = goLeft ? rect.x : rect.x + rect.w;
+              result.splice(i + 1, 0, { x: newX, y: p1.y }, { x: newX, y: p2.y });
+            }
+            changed = true;
+            break;
+          }
+        }
+        if (changed) break;
+      }
+      if (!changed) break;
+    }
+    return dedupePoints(result);
+  }
+
+  function flowFullPoints(flow) {
+    var a = elementById(flow.from);
+    var b = elementById(flow.to);
+    if (flow.points && flow.points.length) {
+      var wpts = flow.points;
+      var p1 = flow.fromSide ? sidePoint(a, flow.fromSide) : edgePoint(a, wpts[0].x, wpts[0].y);
+      var p2 = flow.toSide ? sidePoint(b, flow.toSide) : edgePoint(b, wpts[wpts.length - 1].x, wpts[wpts.length - 1].y);
+      return [p1].concat(wpts).concat([p2]);
+    }
+    return orthogonalRoute(flow);
+  }
+
+  // Turns an auto-routed flow into an explicit, editable one: freezes the
+  // currently computed bend points into flow.points and pins down exactly
+  // which side of each shape it enters/exits from. After this, dragging a
+  // segment only ever nudges these stored points (see the segment-drag
+  // handlers below) instead of recomputing the route from scratch.
+  function materializeFlowPoints(flow) {
+    var already = flow.points && flow.points.length;
+    var a = elementById(flow.from);
+    var b = elementById(flow.to);
+    if (!flow.fromSide) flow.fromSide = autoSide(a, centerOf(b));
+    if (!flow.toSide) flow.toSide = autoSide(b, centerOf(a));
+    if (!already) {
+      var full = flowFullPoints(flow);
+      flow.points = full.slice(1, full.length - 1).map(function (p) { return { x: p.x, y: p.y }; });
+    }
+  }
+
+  // Removes redundant vertices where three consecutive points are collinear
+  // on the same axis — this is what makes a 90° knee visually disappear
+  // when it's dragged back flat.
+  function collapseCollinear(pts) {
+    var result = pts.slice();
+    var changed = true;
+    while (changed && result.length > 2) {
+      changed = false;
+      for (var i = 1; i < result.length - 1; i++) {
+        var a = result[i - 1], b = result[i], c = result[i + 1];
+        var horizAB = Math.abs(a.y - b.y) < 0.5, horizBC = Math.abs(b.y - c.y) < 0.5;
+        var vertAB = Math.abs(a.x - b.x) < 0.5, vertBC = Math.abs(b.x - c.x) < 0.5;
+        if ((horizAB && horizBC && Math.abs(a.y - c.y) < 0.5) || (vertAB && vertBC && Math.abs(a.x - c.x) < 0.5)) {
+          result.splice(i, 1);
+          changed = true;
+          break;
+        }
+      }
+    }
+    return result;
+  }
+
+  /* ---------------- Geometry / alignment guides ---------------- */
+  /* Overlap between items is allowed. Instead, while dragging or resizing we
+     snap to nearby edges/centers of other items and show a dashed guide line,
+     which makes deliberate alignment easy without forbidding overlap. */
+
+  var SNAP_THRESHOLD = 6;
+
+  function computeSnapMove(id, rect, elementsList) {
+    var result = { x: null, y: null, guides: [] };
+    var cxs = [rect.x, rect.x + rect.w / 2, rect.x + rect.w];
+    var cys = [rect.y, rect.y + rect.h / 2, rect.y + rect.h];
+    elementsList.forEach(function (o) {
+      if (o.id === id) return;
+      var oxs = [o.x, o.x + o.w / 2, o.x + o.w];
+      var oys = [o.y, o.y + o.h / 2, o.y + o.h];
+      if (result.x === null) {
+        outerX:
+        for (var i = 0; i < cxs.length; i++) {
+          for (var j = 0; j < oxs.length; j++) {
+            if (Math.abs(cxs[i] - oxs[j]) <= SNAP_THRESHOLD) {
+              result.x = rect.x + (oxs[j] - cxs[i]);
+              result.guides.push({ type: "v", x: oxs[j] });
+              break outerX;
+            }
+          }
+        }
+      }
+      if (result.y === null) {
+        outerY:
+        for (var i2 = 0; i2 < cys.length; i2++) {
+          for (var j2 = 0; j2 < oys.length; j2++) {
+            if (Math.abs(cys[i2] - oys[j2]) <= SNAP_THRESHOLD) {
+              result.y = rect.y + (oys[j2] - cys[i2]);
+              result.guides.push({ type: "h", y: oys[j2] });
+              break outerY;
+            }
+          }
+        }
+      }
+    });
+    return result;
+  }
+
+  function computeSnapResize(id, rightEdge, bottomEdge, origX, origY, elementsList) {
+    var guides = [];
+    var snappedRight = null, snappedBottom = null;
+    elementsList.forEach(function (o) {
+      if (o.id === id) return;
+      [o.x, o.x + o.w].forEach(function (edge) {
+        if (snappedRight === null && Math.abs(rightEdge - edge) <= SNAP_THRESHOLD) {
+          snappedRight = edge;
+          guides.push({ type: "v", x: edge });
+        }
+      });
+      [o.y, o.y + o.h].forEach(function (edge) {
+        if (snappedBottom === null && Math.abs(bottomEdge - edge) <= SNAP_THRESHOLD) {
+          snappedBottom = edge;
+          guides.push({ type: "h", y: edge });
+        }
+      });
+    });
+    return {
+      w: snappedRight !== null ? snappedRight - origX : null,
+      h: snappedBottom !== null ? snappedBottom - origY : null,
+      guides: guides
+    };
+  }
+
+  /* ---------------- Text measuring / auto-size ---------------- */
+
+  function wrapTextToWidth(text, font, maxWidth) {
+    measureCtx.font = font;
+    var words = String(text).split(/\s+/).filter(Boolean);
+    if (!words.length) return [""];
+    var lines = [];
+    var line = "";
+    words.forEach(function (w) {
+      var test = line ? line + " " + w : w;
+      if (measureCtx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = w;
+      } else {
+        line = test;
+      }
+    });
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function recomputeBoxSize(el) {
+    if (el.type !== "task" && el.type !== "subprocess") return;
+    var base = DEFAULT_SIZE[el.type];
+    var padX = 20;
+    var font = "500 12.5px Inter, sans-serif";
+    var maxWidth = base.w - padX * 2;
+    var longestWord = 0;
+    String(el.label).split(/\s+/).forEach(function (w) {
+      measureCtx.font = font;
+      longestWord = Math.max(longestWord, measureCtx.measureText(w).width);
+    });
+    var width = base.w;
+    if (longestWord + padX * 2 > width) width = Math.ceil(longestWord + padX * 2);
+    var lines = wrapTextToWidth(el.label, font, width - padX * 2);
+    var lineHeight = 16;
+    var extra = el.type === "subprocess" ? 30 : 0; // room for the "+" icon
+    var neededHeight = lines.length * lineHeight + 30 + extra;
+    el.w = width;
+    el.h = Math.max(base.h, neededHeight);
+  }
+
+  /* ---------------- Storage: Firestore (shared, real-time) with a          */
+  /* localStorage fallback (per-browser only) when Firebase isn't set up.   */
+
+  var db = null;
+  var useFirestore = false;
+
+  function initFirebase() {
+    try {
+      var cfg = window.PROCESSFLOW_FIREBASE_CONFIG;
+      if (window.firebase && cfg && cfg.apiKey && cfg.apiKey.indexOf("COLE_AQUI") === -1) {
+        firebase.initializeApp(cfg);
+        db = firebase.firestore();
+        useFirestore = true;
+      }
+    } catch (e) {
+      console.error("Firebase init failed, falling back to local storage.", e);
+      useFirestore = false;
+    }
+  }
+
+  function persistAllLocal() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state.processes));
+    } catch (e) { /* best effort only */ }
+  }
+
+  function loadLocalFallback() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length) {
+          state.processes = parsed;
+          return;
+        }
+      }
+    } catch (e) { /* fall through to seed */ }
+    state.processes = seedProcesses();
+    persistAllLocal();
+  }
+
+  // Saves/updates one process. In Firestore mode this writes just that one
+  // document (so two people editing different processes never clash); in
+  // local mode it re-writes the whole array to localStorage.
+  function persistProcessSave(proc) {
+    if (useFirestore) {
+      return db.collection("processes").doc(proc.id).set(proc).catch(function (e) {
+        console.error("Firestore save failed", e);
+        showToast("Falha ao salvar no Firestore — verifique a configuração/regras.");
+      });
+    }
+    persistAllLocal();
+    return Promise.resolve();
+  }
+
+  function persistProcessDelete(id) {
+    if (useFirestore) {
+      return db.collection("processes").doc(id).delete().catch(function (e) {
+        console.error("Firestore delete failed", e);
+        showToast("Falha ao excluir no Firestore.");
+      });
+    }
+    persistAllLocal();
+    return Promise.resolve();
+  }
+
+  function initStorageAndLoad() {
+    initFirebase();
+    if (useFirestore) {
+      db.collection("processes").onSnapshot(function (snapshot) {
+        var docs = [];
+        snapshot.forEach(function (doc) { docs.push(doc.data()); });
+        state.processes = docs;
+        // Only the dashboard list refreshes live; an open editor keeps the
+        // person's in-progress edits untouched until they hit "Salvar".
+        if (!state.current) renderDashboard();
+      }, function (err) {
+        console.error("Firestore listener error", err);
+        showToast("Sem conexão com o Firestore — usando dados locais deste navegador.");
+        useFirestore = false;
+        loadLocalFallback();
+        renderDashboard();
+      });
+    } else {
+      loadLocalFallback();
+      renderDashboard();
+    }
+  }
+
+  function seedProcesses() {
+    var now = Date.now();
+    return [
+      {
+        id: "proc_seed",
+        name: "Atendimento ao cliente",
+        updatedAt: now,
+        elements: [
+          { id: "c0", type: "pool", x: 40, y: 300, w: 1450, h: 380, label: "Central de Atendimento" },
+          { id: "c1", type: "start", x: 100, y: 490, w: 46, h: 46, label: "Chamado aberto" },
+          { id: "c2", type: "subprocess", x: 190, y: 470, w: 180, h: 84, label: "Triagem do chamado",
+            subElements: [
+              { id: "t1", type: "start", x: 60, y: 150, w: 46, h: 46, label: "Início" },
+              { id: "t2", type: "task", x: 160, y: 137, w: 170, h: 74, label: "Registrar dados do cliente" },
+              { id: "t3", type: "task", x: 390, y: 137, w: 170, h: 74, label: "Classificar urgência" },
+              { id: "t4", type: "end", x: 620, y: 150, w: 46, h: 46, label: "Fim" }
+            ],
+            subFlows: [
+              { id: "tf1", from: "t1", to: "t2" },
+              { id: "tf2", from: "t2", to: "t3" },
+              { id: "tf3", from: "t3", to: "t4" }
+            ]
+          },
+          { id: "c3", type: "gatewayExclusive", x: 420, y: 485, w: 54, h: 54, label: "Urgente?" },
+          { id: "c4", type: "task", x: 520, y: 360, w: 170, h: 74, label: "Escalar para especialista", notes: "Somente para chamados classificados como urgentes na triagem. Prazo máximo de resposta: 2h." },
+          { id: "c5", type: "gatewayParallel", x: 740, y: 485, w: 54, h: 54, label: "Paralelo" },
+          { id: "c6", type: "task", x: 840, y: 400, w: 160, h: 74, label: "Verificar SLA" },
+          { id: "c7", type: "task", x: 840, y: 560, w: 160, h: 74, label: "Notificar cliente" },
+          { id: "c8", type: "gatewayParallel", x: 1050, y: 485, w: 54, h: 54, label: "Paralelo" },
+          { id: "c9", type: "task", x: 1150, y: 470, w: 170, h: 84, label: "Registrar solução" },
+          { id: "c10", type: "end", x: 1370, y: 490, w: 46, h: 46, label: "Chamado encerrado" }
+        ],
+        flows: [
+          { id: "cf1", from: "c1", to: "c2" },
+          { id: "cf2", from: "c2", to: "c3" },
+          { id: "cf3", from: "c3", to: "c4", label: "Sim" },
+          { id: "cf4", from: "c3", to: "c5", label: "Não" },
+          { id: "cf5", from: "c4", to: "c5" },
+          { id: "cf6", from: "c5", to: "c6" },
+          { id: "cf7", from: "c5", to: "c7" },
+          { id: "cf8", from: "c6", to: "c8" },
+          { id: "cf9", from: "c7", to: "c8" },
+          { id: "cf10", from: "c8", to: "c9" },
+          { id: "cf11", from: "c9", to: "c10" }
+        ]
+      }
+    ];
+  }
+
+  /* ---------------- Export / Import (sharing with the group) ---------------- */
+
+  function exportAllData() {
+    var blob = new Blob([JSON.stringify(state.processes, null, 2)], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "processflow-dados.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    showToast("Dados exportados.");
+  }
+
+  function importDataFromFile(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var imported = JSON.parse(reader.result);
+        if (!Array.isArray(imported)) throw new Error("formato inválido");
+        var byId = {};
+        state.processes.forEach(function (p) { byId[p.id] = p; });
+        imported.forEach(function (p) { byId[p.id] = p; });
+        state.processes = Object.keys(byId).map(function (k) { return byId[k]; });
+        if (useFirestore) {
+          imported.forEach(function (p) { persistProcessSave(p); });
+        } else {
+          persistAllLocal();
+        }
+        renderDashboard();
+        showToast("Processos importados.");
+      } catch (e) {
+        showToast("Arquivo inválido. Selecione um JSON exportado pelo ProcessFlow.");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  /* ---------------- Toast ---------------- */
+  var toastTimer = null;
+  function showToast(msg) {
+    var t = els.toast;
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2400);
+  }
+
+  /* ---------------- Note tooltip ---------------- */
+  function showNoteTooltip(clientX, clientY, text) {
+    var tip = els.noteTooltip;
+    if (!tip) return;
+    tip.textContent = text;
+    tip.style.left = (clientX + 14) + "px";
+    tip.style.top = (clientY + 14) + "px";
+    tip.classList.add("show");
+  }
+  function hideNoteTooltip() {
+    if (els.noteTooltip) els.noteTooltip.classList.remove("show");
+  }
+
+  /* ---------------- Modal ---------------- */
+  function openModal(contentHtml, extraClass) {
+    els.modalBody.className = "modal-box" + (extraClass ? " " + extraClass : "");
+    els.modalBody.innerHTML = contentHtml;
+    els.modalOverlay.classList.add("show");
+  }
+  function closeModal() {
+    els.modalOverlay.classList.remove("show");
+    els.modalBody.innerHTML = "";
+    els.modalBody.className = "modal-box";
+  }
+
+  /* ---------------- Dashboard ---------------- */
+
+  function showDashboard() {
+    state.current = null;
+    state.viewStack = [];
+    state.selectedId = null;
+    state.selectedFlowId = null;
+    els.dashboardView.classList.remove("hidden");
+    els.editorView.classList.add("hidden");
+    renderDashboard();
+  }
+
+  function renderDashboard() {
+    var list = els.processList;
+    list.innerHTML = "";
+    if (state.processes.length === 0) {
+      list.innerHTML =
+        '<div class="empty-state">' +
+        '<p class="empty-title">Nenhum processo ainda</p>' +
+        '<p class="empty-sub">Crie o primeiro processo do grupo para começar a desenhar o fluxo.</p>' +
+        '<button class="btn btn-primary" id="btnNewProcessEmpty" style="margin-top:16px;">+ Novo processo</button>' +
+        "</div>";
+      document.getElementById("btnNewProcessEmpty").addEventListener("click", openNewProcessModal);
+      return;
+    }
+    var sorted = state.processes.slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+    sorted.forEach(function (p) {
+      var card = document.createElement("div");
+      card.className = "process-card";
+      card.innerHTML =
+        '<div class="stamp">' + processCode(p) + "</div>" +
+        '<h3 class="pc-title">' + escapeXML(p.name) + "</h3>" +
+        '<p class="pc-meta">' + p.elements.length + " elementos · atualizado em " + formatDate(p.updatedAt) + "</p>" +
+        '<div class="pc-actions">' +
+        '<button class="btn btn-ghost" data-act="delete" data-id="' + p.id + '">Excluir</button>' +
+        '<button class="btn btn-primary" data-act="open" data-id="' + p.id + '">Abrir</button>' +
+        "</div>";
+      list.appendChild(card);
+    });
+  }
+
+  function onProcessListClick(e) {
+    var btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    var id = btn.getAttribute("data-id");
+    if (btn.getAttribute("data-act") === "open") openProcess(id);
+    else if (btn.getAttribute("data-act") === "delete") confirmDeleteProcess(id);
+  }
+
+  function confirmDeleteProcess(id) {
+    var p = state.processes.find(function (x) { return x.id === id; });
+    if (!p) return;
+    openModal(
+      '<h3 class="modal-title">Excluir processo</h3>' +
+      '<p class="modal-text">Tem certeza que deseja excluir "' + escapeXML(p.name) + '"? Essa ação não pode ser desfeita.</p>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelDelete">Cancelar</button>' +
+      '<button class="btn btn-danger" id="confirmDelete">Excluir</button>' +
+      "</div>"
+    );
+    document.getElementById("cancelDelete").onclick = closeModal;
+    document.getElementById("confirmDelete").onclick = function () {
+      state.processes = state.processes.filter(function (x) { return x.id !== id; });
+      persistProcessDelete(id);
+      closeModal();
+      renderDashboard();
+      showToast("Processo excluído.");
+    };
+  }
+
+  function openNewProcessModal() {
+    openModal(
+      '<h3 class="modal-title">Novo processo</h3>' +
+      '<label class="field-label">Nome do processo</label>' +
+      '<input type="text" id="newProcName" class="text-input" placeholder="Ex.: Aprovação de compras" maxlength="80" />' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelNew">Cancelar</button>' +
+      '<button class="btn btn-primary" id="confirmNew">Criar processo</button>' +
+      "</div>"
+    );
+    var nameInput = document.getElementById("newProcName");
+    nameInput.focus();
+    document.getElementById("cancelNew").onclick = closeModal;
+    document.getElementById("confirmNew").onclick = function () {
+      var name = nameInput.value.trim() || "Processo sem título";
+      var proc = { id: uid("proc"), name: name, elements: [], flows: [], updatedAt: Date.now() };
+      state.processes.push(proc);
+      persistProcessSave(proc);
+      closeModal();
+      openProcess(proc.id);
+    };
+  }
+
+  /* ---------------- Editor / navigation ---------------- */
+
+  function currentView() {
+    return state.viewStack[state.viewStack.length - 1];
+  }
+
+  function openProcess(id) {
+    var p = state.processes.find(function (x) { return x.id === id; });
+    if (!p) return;
+    state.current = JSON.parse(JSON.stringify(p));
+    state.viewStack = [{ elements: state.current.elements, flows: state.current.flows, ownerEl: null }];
+    state.tool = "select";
+    state.connectFrom = null;
+    state.selectedId = null;
+    state.selectedFlowId = null;
+    els.dashboardView.classList.add("hidden");
+    els.editorView.classList.remove("hidden");
+    renderPalette();
+    renderBreadcrumb();
+    renderCanvas();
+    renderInspector();
+    updateToolButtons();
+    syncTitleInput();
+  }
+
+  function syncTitleInput() {
+    var view = currentView();
+    els.procNameInput.value = view.ownerEl ? view.ownerEl.label : state.current.name;
+  }
+
+  function enterSubprocess(id) {
+    var el = elementById(id);
+    if (!el || el.type !== "subprocess") return;
+    if (!el.subElements) el.subElements = [];
+    if (!el.subFlows) el.subFlows = [];
+    state.viewStack.push({ elements: el.subElements, flows: el.subFlows, ownerEl: el });
+    state.selectedId = null;
+    state.selectedFlowId = null;
+    state.connectFrom = null;
+    state.tool = "select";
+    renderBreadcrumb();
+    renderCanvas();
+    renderInspector();
+    updateToolButtons();
+    syncTitleInput();
+  }
+
+  function goBack() {
+    if (state.viewStack.length > 1) {
+      state.viewStack.pop();
+      state.selectedId = null;
+      state.selectedFlowId = null;
+      state.connectFrom = null;
+      state.tool = "select";
+      renderBreadcrumb();
+      renderCanvas();
+      renderInspector();
+      updateToolButtons();
+      syncTitleInput();
+    } else {
+      showDashboard();
+    }
+  }
+
+  function jumpToViewLevel(index) {
+    state.viewStack = state.viewStack.slice(0, index + 1);
+    state.selectedId = null;
+    state.selectedFlowId = null;
+    state.connectFrom = null;
+    renderBreadcrumb();
+    renderCanvas();
+    renderInspector();
+    syncTitleInput();
+  }
+
+  function renderBreadcrumb() {
+    var html = "";
+    state.viewStack.forEach(function (v, i) {
+      var label = v.ownerEl ? v.ownerEl.label : state.current.name;
+      var isLast = i === state.viewStack.length - 1;
+      if (i > 0) html += '<span class="sep">›</span>';
+      if (isLast) {
+        html += '<span class="crumb-current">' + escapeXML(label) + "</span>";
+      } else {
+        html += '<button class="crumb-link" data-idx="' + i + '">' + escapeXML(label) + "</button>";
+      }
+    });
+    els.breadcrumbBar.innerHTML = html;
+    Array.prototype.forEach.call(els.breadcrumbBar.querySelectorAll(".crumb-link"), function (btn) {
+      btn.addEventListener("click", function () { jumpToViewLevel(parseInt(btn.getAttribute("data-idx"), 10)); });
+    });
+  }
+
+  function renderPalette() {
+    var groups = {};
+    PALETTE.forEach(function (it) {
+      groups[it.group] = groups[it.group] || [];
+      groups[it.group].push(it);
+    });
+    var html = "";
+    Object.keys(groups).forEach(function (g) {
+      html += '<div class="palette-group"><h4>' + g + "</h4>";
+      groups[g].forEach(function (it) {
+        html +=
+          '<div class="palette-item" draggable="true" data-type="' + it.type + '">' +
+          '<span class="pi-icon pi-' + it.type + '"></span>' +
+          '<span>' + it.label + "</span>" +
+          "</div>";
+      });
+      html += "</div>";
+    });
+    els.paletteBody.innerHTML = html;
+    Array.prototype.forEach.call(els.paletteBody.querySelectorAll(".palette-item"), function (node) {
+      node.addEventListener("dragstart", function (e) {
+        e.dataTransfer.setData("text/plain", node.getAttribute("data-type"));
+        e.dataTransfer.effectAllowed = "copy";
+      });
+    });
+  }
+
+  function addElement(type, x, y) {
+    var size = DEFAULT_SIZE[type];
+    var elX = Math.max(0, Math.min(CANVAS_W - size.w, x - size.w / 2));
+    var elY = Math.max(0, Math.min(CANVAS_H - size.h, y - size.h / 2));
+    var el = { id: uid("el"), type: type, x: elX, y: elY, w: size.w, h: size.h, label: DEFAULT_LABEL[type] };
+    if (type === "subprocess") { el.subElements = []; el.subFlows = []; }
+    if (type === "task" || type === "subprocess") { el.notes = ""; recomputeBoxSize(el); }
+    currentView().elements.push(el);
+    state.selectedId = el.id;
+    state.selectedFlowId = null;
+    renderCanvas();
+    renderInspector();
+  }
+
+  function elementById(id) {
+    return currentView().elements.find(function (e) { return e.id === id; });
+  }
+
+  function centerOf(el) { return { x: el.x + el.w / 2, y: el.y + el.h / 2 }; }
+
+  function edgePoint(el, towardX, towardY) {
+    var c = centerOf(el);
+    var dx = towardX - c.x;
+    var dy = towardY - c.y;
+    if (dx === 0 && dy === 0) return c;
+    var hw = el.w / 2;
+    var hh = el.h / 2;
+    var scale = Math.min(Math.abs(hw / (dx || 0.0001)), Math.abs(hh / (dy || 0.0001)));
+    return { x: c.x + dx * scale, y: c.y + dy * scale };
+  }
+
+  function wrapLines(text, maxChars) {
+    var words = String(text).split(/\s+/);
+    var lines = [];
+    var line = "";
+    words.forEach(function (w) {
+      var test = line ? line + " " + w : w;
+      if (test.length > maxChars && line) { lines.push(line); line = w; }
+      else line = test;
+    });
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function shapeSVG(el, isSelected, isConnectSource) {
+    var stroke = "var(--line)";
+    var extraClass = "";
+    if (el.type === "start" || el.type === "end" || el.type === "intermediate") stroke = "var(--flow-event)";
+    if (el.type === "task" || el.type === "subprocess") stroke = "var(--flow-task)";
+    if (el.type === "gatewayExclusive" || el.type === "gatewayParallel") stroke = "var(--flow-gateway)";
+    if (isSelected) stroke = "var(--accent)";
+    var strokeWidth = isSelected ? 3 : (el.type === "end" ? 3 : 2);
+    var body = "";
+
+    if (el.type === "pool") {
+      body =
+        '<rect x="0" y="0" width="' + el.w + '" height="' + el.h + '" rx="4" fill="var(--pool-fill)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>' +
+        '<rect x="0" y="0" width="34" height="' + el.h + '" fill="var(--ink)" />' +
+        '<text x="17" y="' + el.h / 2 + '" fill="var(--paper)" font-family="var(--font-mono)" font-size="13" text-anchor="middle" transform="rotate(-90 17 ' + el.h / 2 + ')">' + escapeXML(el.label) + "</text>";
+      if (isSelected) {
+        body += '<rect class="resize-handle" data-id="' + el.id + '" x="' + (el.w - 14) + '" y="' + (el.h - 14) + '" width="14" height="14" rx="3"/>';
+      }
+    } else if (el.type === "start") {
+      body = '<circle cx="' + el.w / 2 + '" cy="' + el.h / 2 + '" r="' + (el.w / 2 - 2) + '" fill="var(--surface)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>';
+    } else if (el.type === "end") {
+      body = '<circle cx="' + el.w / 2 + '" cy="' + el.h / 2 + '" r="' + (el.w / 2 - 2) + '" fill="var(--surface)" stroke="' + stroke + '" stroke-width="' + (strokeWidth + 2) + '"/>';
+    } else if (el.type === "intermediate") {
+      body =
+        '<circle cx="' + el.w / 2 + '" cy="' + el.h / 2 + '" r="' + (el.w / 2 - 2) + '" fill="var(--surface)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>' +
+        '<circle cx="' + el.w / 2 + '" cy="' + el.h / 2 + '" r="' + (el.w / 2 - 7) + '" fill="none" stroke="' + stroke + '" stroke-width="1.5"/>';
+    } else if (el.type === "task" || el.type === "subprocess") {
+      body = '<rect x="0" y="0" width="' + el.w + '" height="' + el.h + '" rx="10" fill="var(--surface)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>';
+    } else if (el.type === "gatewayExclusive" || el.type === "gatewayParallel") {
+      var w = el.w, h = el.h;
+      body = '<polygon points="' + (w / 2) + ',0 ' + w + ',' + (h / 2) + ' ' + (w / 2) + ',' + h + ' 0,' + (h / 2) + '" fill="var(--surface)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>';
+      if (el.type === "gatewayExclusive") {
+        body += '<line x1="' + (w * 0.32) + '" y1="' + (h * 0.32) + '" x2="' + (w * 0.68) + '" y2="' + (h * 0.68) + '" stroke="' + stroke + '" stroke-width="2.4"/>' +
+          '<line x1="' + (w * 0.68) + '" y1="' + (h * 0.32) + '" x2="' + (w * 0.32) + '" y2="' + (h * 0.68) + '" stroke="' + stroke + '" stroke-width="2.4"/>';
+      } else {
+        body += '<line x1="' + (w / 2) + '" y1="' + (h * 0.22) + '" x2="' + (w / 2) + '" y2="' + (h * 0.78) + '" stroke="' + stroke + '" stroke-width="2.4"/>' +
+          '<line x1="' + (w * 0.22) + '" y1="' + (h / 2) + '" x2="' + (w * 0.78) + '" y2="' + (h / 2) + '" stroke="' + stroke + '" stroke-width="2.4"/>';
+      }
+    }
+
+    var expandSVG = "";
+    if (el.type === "subprocess") {
+      var cx = el.w / 2, cy = el.h - 16;
+      var hasDetail = el.subElements && el.subElements.length > 0;
+      expandSVG =
+        '<g class="subprocess-expand" data-subprocess-id="' + el.id + '">' +
+        '<rect x="' + (cx - 15) + '" y="' + (cy - 15) + '" width="30" height="30" fill="transparent"/>' +
+        '<rect x="' + (cx - 9) + '" y="' + (cy - 9) + '" width="18" height="18" rx="3" fill="' + (hasDetail ? "var(--accent-soft)" : "var(--surface)") + '" stroke="' + stroke + '" stroke-width="1.6"/>' +
+        '<line x1="' + (cx - 5) + '" y1="' + cy + '" x2="' + (cx + 5) + '" y2="' + cy + '" stroke="' + stroke + '" stroke-width="1.6"/>' +
+        '<line x1="' + cx + '" y1="' + (cy - 5) + '" x2="' + cx + '" y2="' + (cy + 5) + '" stroke="' + stroke + '" stroke-width="1.6"/>' +
+        "</g>";
+    }
+
+    var labelSVG = "";
+    if (el.type !== "pool") {
+      if (el.type === "task" || el.type === "subprocess") {
+        var font = "500 12.5px Inter, sans-serif";
+        var maxWidth = el.w - 40;
+        var lines = wrapTextToWidth(el.label, font, maxWidth);
+        var lh = 16;
+        var reserved = el.type === "subprocess" ? 34 : 20;
+        var usableH = el.h - reserved;
+        var totalH = lines.length * lh;
+        var ty = 14 + Math.max(0, (usableH - totalH) / 2) + lh - 4;
+        labelSVG = lines.map(function (ln, i) {
+          return '<tspan x="' + (el.w / 2) + '" y="' + (ty + i * lh) + '">' + escapeXML(ln) + "</tspan>";
+        }).join("");
+        labelSVG = '<text text-anchor="middle" font-family="var(--font-body)" font-size="12.5" fill="var(--text)">' + labelSVG + "</text>";
+      } else {
+        var lines2 = wrapLines(el.label, 12);
+        var by = el.h + 16;
+        labelSVG = lines2.map(function (ln, i) {
+          return '<tspan x="' + (el.w / 2) + '" y="' + (by + i * 13) + '">' + escapeXML(ln) + "</tspan>";
+        }).join("");
+        labelSVG = '<text text-anchor="middle" font-family="var(--font-body)" font-size="12" fill="var(--text)">' + labelSVG + "</text>";
+      }
+    }
+
+    var sourceRing = isConnectSource ? '<circle cx="' + el.w / 2 + '" cy="' + el.h / 2 + '" r="' + (Math.max(el.w, el.h) / 2 + 8) + '" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/>' : "";
+
+    var noteIcon = "";
+    if ((el.type === "task" || el.type === "subprocess") && el.notes && el.notes.trim()) {
+      noteIcon =
+        '<g class="note-icon" data-id="' + el.id + '" transform="translate(8,8)">' +
+        '<path d="M0,0 L11,0 L11,8 L8,11 L0,11 Z" fill="var(--accent-soft)" stroke="var(--flow-gateway)" stroke-width="1.3"/>' +
+        '<path d="M8,11 L8,8 L11,8" fill="none" stroke="var(--flow-gateway)" stroke-width="1.3"/>' +
+        "</g>";
+    }
+
+    var portsSVG = "";
+    if (state.tool === "connect") {
+      var portDefs = [
+        { side: "top", x: el.w / 2, y: 0 },
+        { side: "right", x: el.w, y: el.h / 2 },
+        { side: "bottom", x: el.w / 2, y: el.h },
+        { side: "left", x: 0, y: el.h / 2 }
+      ];
+      portsSVG = portDefs.map(function (p) {
+        var isActive = state.connectFrom && state.connectFrom.id === el.id && state.connectFrom.side === p.side;
+        return '<circle class="port-handle" data-id="' + el.id + '" data-side="' + p.side + '" cx="' + p.x + '" cy="' + p.y + '" r="6.5" fill="' +
+          (isActive ? "var(--accent)" : "var(--surface)") + '" stroke="var(--accent)" stroke-width="1.8"/>';
+      }).join("");
+    }
+
+    return (
+      '<g class="shape ' + extraClass + '" data-id="' + el.id + '" data-type="' + el.type + '" transform="translate(' + el.x + "," + el.y + ')" tabindex="0">' +
+      sourceRing + body + labelSVG + expandSVG + noteIcon + portsSVG +
+      "</g>"
+    );
+  }
+
+  function flowSVG(flow, isSelected) {
+    var a = elementById(flow.from);
+    var b = elementById(flow.to);
+    if (!a || !b) return "";
+    var pts = flowFullPoints(flow);
+    var ptsAttr = pts.map(function (p) { return p.x + "," + p.y; }).join(" ");
+    var stroke = isSelected ? "var(--accent)" : "var(--ink-soft)";
+    var sw = isSelected ? 3 : 2;
+
+    var labelSVG = "";
+    if (flow.label) {
+      var font = "500 11px JetBrains Mono, monospace";
+      var lines = wrapTextToWidth(flow.label, font, 130);
+      measureCtx.font = font;
+      var maxLineW = 0;
+      lines.forEach(function (ln) { maxLineW = Math.max(maxLineW, measureCtx.measureText(ln).width); });
+      var boxW = Math.max(26, maxLineW + 14);
+      var lh = 14;
+      var boxH = lines.length * lh + 8;
+      var segIdx = Math.floor((pts.length - 1) / 2);
+      var mx = (pts[segIdx].x + pts[segIdx + 1].x) / 2;
+      var my = (pts[segIdx].y + pts[segIdx + 1].y) / 2;
+      var rectX = mx - boxW / 2;
+      var rectY = my - boxH / 2;
+      labelSVG =
+        '<rect x="' + rectX + '" y="' + rectY + '" width="' + boxW + '" height="' + boxH + '" rx="4" fill="var(--paper)" stroke="var(--border)"/>' +
+        '<text text-anchor="middle" font-family="var(--font-mono)" font-size="11" fill="var(--text)">' +
+        lines.map(function (ln, i) {
+          return '<tspan x="' + mx + '" y="' + (rectY + 11 + i * lh) + '">' + escapeXML(ln) + "</tspan>";
+        }).join("") +
+        "</text>";
+    }
+
+    var segmentHandles = "";
+    var endpointHandles = "";
+    if (isSelected) {
+      for (var i = 0; i < pts.length - 1; i++) {
+        var p1 = pts[i], p2 = pts[i + 1];
+        var segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+        if (segLen < 10) continue; // skip degenerate segments, nothing useful to grab
+        var horiz = Math.abs(p1.y - p2.y) < 0.5;
+        var mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+        var hw = horiz ? 16 : 9, hh = horiz ? 9 : 16;
+        segmentHandles +=
+          '<rect class="seg-handle" data-flow-id="' + flow.id + '" data-seg-index="' + i + '" data-horiz="' + (horiz ? 1 : 0) + '" ' +
+          'x="' + (mx - hw / 2) + '" y="' + (my - hh / 2) + '" width="' + hw + '" height="' + hh + '" rx="3"/>';
+      }
+      var curFromSide = flow.fromSide || autoSide(a, centerOf(b));
+      var curToSide = flow.toSide || autoSide(b, centerOf(a));
+      SIDES.forEach(function (side) {
+        var p = sidePoint(a, side);
+        var active = side === curFromSide;
+        endpointHandles += '<circle class="endpoint-handle" data-flow-id="' + flow.id + '" data-role="from" data-side="' + side + '" cx="' + p.x + '" cy="' + p.y + '" r="6.5" fill="' + (active ? "var(--accent)" : "var(--surface)") + '"/>';
+      });
+      SIDES.forEach(function (side) {
+        var p = sidePoint(b, side);
+        var active = side === curToSide;
+        endpointHandles += '<circle class="endpoint-handle" data-flow-id="' + flow.id + '" data-role="to" data-side="' + side + '" cx="' + p.x + '" cy="' + p.y + '" r="6.5" fill="' + (active ? "var(--accent)" : "var(--surface)") + '"/>';
+      });
+    }
+
+    return (
+      '<g class="flow" data-flow-id="' + flow.id + '">' +
+      '<polyline points="' + ptsAttr + '" fill="none" stroke="transparent" stroke-width="16" class="flow-hit" data-flow-id="' + flow.id + '"/>' +
+      '<polyline points="' + ptsAttr + '" fill="none" stroke="' + stroke + '" stroke-width="' + sw + '" marker-end="url(#arrowhead)"/>' +
+      labelSVG + segmentHandles + endpointHandles +
+      "</g>"
+    );
+  }
+
+  function renderCanvas() {
+    hideNoteTooltip();
+    var view = currentView();
+    if (!view) return;
+    var pools = view.elements.filter(function (e) { return e.type === "pool"; });
+    var others = view.elements.filter(function (e) { return e.type !== "pool"; });
+
+    var svgParts = [];
+    svgParts.push(
+      '<defs><marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">' +
+      '<path d="M0,0 L8,3 L0,6 Z" fill="var(--ink-soft)"/></marker>' +
+      '<pattern id="dotgrid" width="22" height="22" patternUnits="userSpaceOnUse">' +
+      '<circle cx="2" cy="2" r="1.3" fill="var(--paper-grid)"/></pattern></defs>'
+    );
+    svgParts.push('<rect x="0" y="0" width="' + CANVAS_W + '" height="' + CANVAS_H + '" fill="url(#dotgrid)"/>');
+    pools.forEach(function (el) { svgParts.push(shapeSVG(el, el.id === state.selectedId, !!(state.connectFrom && state.connectFrom.id === el.id))); });
+    view.flows.forEach(function (f) { svgParts.push(flowSVG(f, f.id === state.selectedFlowId)); });
+    others.forEach(function (el) { svgParts.push(shapeSVG(el, el.id === state.selectedId, !!(state.connectFrom && state.connectFrom.id === el.id))); });
+
+    if (state.dragGuides && state.dragGuides.length) {
+      state.dragGuides.forEach(function (g) {
+        if (g.type === "v") {
+          svgParts.push('<line x1="' + g.x + '" y1="0" x2="' + g.x + '" y2="' + CANVAS_H + '" stroke="var(--accent)" stroke-width="1" stroke-dasharray="5 4"/>');
+        } else {
+          svgParts.push('<line x1="0" y1="' + g.y + '" x2="' + CANVAS_W + '" y2="' + g.y + '" stroke="var(--accent)" stroke-width="1" stroke-dasharray="5 4"/>');
+        }
+      });
+    }
+
+    els.svg.innerHTML = svgParts.join("");
+    els.svg.setAttribute("viewBox", "0 0 " + CANVAS_W + " " + CANVAS_H);
+    attachCanvasHandlers();
+  }
+
+  function attachCanvasHandlers() {
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".shape"), function (g) {
+      g.addEventListener("mousedown", onShapeMouseDown);
+      g.addEventListener("click", onShapeClick);
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".subprocess-expand"), function (g) {
+      g.addEventListener("mousedown", function (e) { if (state.tool === "select") e.stopPropagation(); });
+      g.addEventListener("click", function (e) {
+        if (state.tool === "connect") return;
+        e.stopPropagation();
+        enterSubprocess(e.currentTarget.getAttribute("data-subprocess-id"));
+      });
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".resize-handle"), function (h) {
+      h.addEventListener("mousedown", onResizeMouseDown);
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".port-handle"), function (p) {
+      p.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+      p.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var id = p.getAttribute("data-id");
+        var side = p.getAttribute("data-side");
+        if (!state.connectFrom) {
+          state.connectFrom = { id: id, side: side };
+        } else if (state.connectFrom.id !== id) {
+          currentView().flows.push({ id: uid("flow"), from: state.connectFrom.id, to: id, fromSide: state.connectFrom.side, toSide: side });
+          state.connectFrom = null;
+        } else {
+          state.connectFrom = { id: id, side: side };
+        }
+        renderCanvas();
+      });
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".note-icon"), function (n) {
+      n.addEventListener("mouseenter", function (e) {
+        var el = elementById(n.getAttribute("data-id"));
+        if (el && el.notes) showNoteTooltip(e.clientX, e.clientY, el.notes);
+      });
+      n.addEventListener("mousemove", function (e) {
+        var el = elementById(n.getAttribute("data-id"));
+        if (el && el.notes) showNoteTooltip(e.clientX, e.clientY, el.notes);
+      });
+      n.addEventListener("mouseleave", hideNoteTooltip);
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".flow"), function (g) {
+      g.addEventListener("click", function (e) {
+        e.stopPropagation();
+        state.selectedFlowId = g.getAttribute("data-flow-id");
+        state.selectedId = null;
+        renderCanvas();
+        renderInspector();
+      });
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".seg-handle"), function (h) {
+      h.addEventListener("mousedown", function (e) {
+        e.stopPropagation();
+        var flowId = h.getAttribute("data-flow-id");
+        var flow = currentView().flows.find(function (f) { return f.id === flowId; });
+        if (!flow) return;
+        materializeFlowPoints(flow);
+        var start = svgPoint(e);
+        segmentDragState = {
+          flowId: flowId,
+          segIndex: parseInt(h.getAttribute("data-seg-index"), 10),
+          horiz: h.getAttribute("data-horiz") === "1",
+          startX: start.x,
+          startY: start.y,
+          inserted: false
+        };
+        window.addEventListener("mousemove", onSegmentDragMove);
+        window.addEventListener("mouseup", onSegmentDragUp);
+      });
+    });
+    Array.prototype.forEach.call(els.svg.querySelectorAll(".endpoint-handle"), function (h) {
+      h.addEventListener("mousedown", function (e) { e.stopPropagation(); });
+      h.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var flowId = h.getAttribute("data-flow-id");
+        var role = h.getAttribute("data-role");
+        var side = h.getAttribute("data-side");
+        var flow = currentView().flows.find(function (f) { return f.id === flowId; });
+        if (!flow) return;
+        if (role === "from") flow.fromSide = side; else flow.toSide = side;
+        flow.points = []; // start fresh from the newly chosen port
+        renderCanvas();
+        renderInspector();
+      });
+    });
+  }
+
+  var dragState = null;
+  var resizeState = null;
+  var segmentDragState = null;
+
+  // Dragging a segment only ever moves it perpendicular to itself — a
+  // horizontal segment can only slide up/down, a vertical one left/right.
+  // The very first time a given segment is dragged, if it's still attached
+  // directly to a port (no bend point there yet), a new 90° knee is created
+  // at that spot; dragging an already-existing knee just moves it, and it
+  // disappears again on release if it's dragged back into a straight line.
+  function onSegmentDragMove(e) {
+    if (!segmentDragState) return;
+    var flow = currentView().flows.find(function (f) { return f.id === segmentDragState.flowId; });
+    if (!flow) return;
+    var pos = svgPoint(e);
+    var horiz = segmentDragState.horiz;
+    var newCoord = horiz ? pos.y : pos.x;
+    newCoord = Math.max(0, Math.min(horiz ? CANVAS_H : CANVAS_W, newCoord));
+
+    var full = flowFullPoints(flow);
+    var i = segmentDragState.segIndex;
+    if (i < 0 || i > full.length - 2) return;
+    var isFirstSeg = i === 0;
+    var isLastSeg = i === full.length - 2;
+
+    if (!isFirstSeg && !isLastSeg) {
+      var idxA = i - 1, idxB = i; // indices into flow.points
+      if (horiz) { flow.points[idxA].y = newCoord; flow.points[idxB].y = newCoord; }
+      else { flow.points[idxA].x = newCoord; flow.points[idxB].x = newCoord; }
+    } else if (isFirstSeg) {
+      if (!segmentDragState.inserted) {
+        var anchorA = full[0];
+        var newPointA = horiz ? { x: anchorA.x, y: newCoord } : { x: newCoord, y: anchorA.y };
+        flow.points.unshift(newPointA);
+        segmentDragState.inserted = true;
+      }
+      if (horiz) { flow.points[0].y = newCoord; if (flow.points.length > 1) flow.points[1].y = newCoord; }
+      else { flow.points[0].x = newCoord; if (flow.points.length > 1) flow.points[1].x = newCoord; }
+    } else if (isLastSeg) {
+      if (!segmentDragState.inserted) {
+        var anchorB = full[full.length - 1];
+        var newPointB = horiz ? { x: anchorB.x, y: newCoord } : { x: newCoord, y: anchorB.y };
+        flow.points.push(newPointB);
+        segmentDragState.inserted = true;
+      }
+      var li = flow.points.length - 1;
+      if (horiz) { flow.points[li].y = newCoord; if (li > 0) flow.points[li - 1].y = newCoord; }
+      else { flow.points[li].x = newCoord; if (li > 0) flow.points[li - 1].x = newCoord; }
+    }
+    renderCanvas();
+  }
+
+  function onSegmentDragUp() {
+    window.removeEventListener("mousemove", onSegmentDragMove);
+    window.removeEventListener("mouseup", onSegmentDragUp);
+    if (segmentDragState) {
+      var flow = currentView().flows.find(function (f) { return f.id === segmentDragState.flowId; });
+      if (flow) {
+        var full = flowFullPoints(flow);
+        var simplified = collapseCollinear(full);
+        flow.points = simplified.slice(1, simplified.length - 1);
+        renderCanvas();
+        renderInspector();
+      }
+    }
+    segmentDragState = null;
+  }
+
+  function svgPoint(evt) {
+    var pt = els.svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    var ctm = els.svg.getScreenCTM();
+    if (!ctm) return { x: 0, y: 0 };
+    var loc = pt.matrixTransform(ctm.inverse());
+    return { x: loc.x, y: loc.y };
+  }
+
+  function onShapeMouseDown(e) {
+    if (state.tool === "connect") return;
+    var id = e.currentTarget.getAttribute("data-id");
+    var type = e.currentTarget.getAttribute("data-type");
+    var el = elementById(id);
+    if (!el) return;
+    var start = svgPoint(e);
+    dragState = { id: id, type: type, startX: start.x, startY: start.y, origX: el.x, origY: el.y, moved: false, lastValidX: el.x, lastValidY: el.y };
+    e.stopPropagation();
+    window.addEventListener("mousemove", onShapeMouseMove);
+    window.addEventListener("mouseup", onShapeMouseUp);
+  }
+
+  function onShapeMouseMove(e) {
+    if (!dragState) return;
+    var pos = svgPoint(e);
+    var dx = pos.x - dragState.startX;
+    var dy = pos.y - dragState.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) dragState.moved = true;
+    if (!dragState.moved) return;
+    var el = elementById(dragState.id);
+    if (!el) return;
+    var rawX = Math.max(0, Math.min(CANVAS_W - el.w, dragState.origX + dx));
+    var rawY = Math.max(0, Math.min(CANVAS_H - el.h, dragState.origY + dy));
+    var snap = computeSnapMove(el.id, { x: rawX, y: rawY, w: el.w, h: el.h }, currentView().elements);
+    el.x = snap.x !== null ? snap.x : rawX;
+    el.y = snap.y !== null ? snap.y : rawY;
+    state.dragGuides = snap.guides;
+    renderCanvas();
+  }
+
+  function onShapeMouseUp() {
+    window.removeEventListener("mousemove", onShapeMouseMove);
+    window.removeEventListener("mouseup", onShapeMouseUp);
+    dragState = null;
+    if (state.dragGuides.length) {
+      state.dragGuides = [];
+      renderCanvas();
+    }
+  }
+
+  function onResizeMouseDown(e) {
+    e.stopPropagation();
+    var id = e.currentTarget.getAttribute("data-id");
+    var el = elementById(id);
+    if (!el) return;
+    var start = svgPoint(e);
+    resizeState = { id: id, startX: start.x, startY: start.y, origW: el.w, origH: el.h };
+    window.addEventListener("mousemove", onResizeMouseMove);
+    window.addEventListener("mouseup", onResizeMouseUp);
+  }
+
+  function onResizeMouseMove(e) {
+    if (!resizeState) return;
+    var pos = svgPoint(e);
+    var dw = pos.x - resizeState.startX;
+    var dh = pos.y - resizeState.startY;
+    var el = elementById(resizeState.id);
+    if (!el) return;
+    var newW = Math.max(MIN_POOL_W, Math.min(CANVAS_W - el.x, resizeState.origW + dw));
+    var newH = Math.max(MIN_POOL_H, Math.min(CANVAS_H - el.y, resizeState.origH + dh));
+    var snap = computeSnapResize(el.id, el.x + newW, el.y + newH, el.x, el.y, currentView().elements);
+    el.w = snap.w !== null ? Math.max(MIN_POOL_W, snap.w) : newW;
+    el.h = snap.h !== null ? Math.max(MIN_POOL_H, snap.h) : newH;
+    state.dragGuides = snap.guides;
+    renderCanvas();
+  }
+
+  function onResizeMouseUp() {
+    window.removeEventListener("mousemove", onResizeMouseMove);
+    window.removeEventListener("mouseup", onResizeMouseUp);
+    resizeState = null;
+    if (state.dragGuides.length) {
+      state.dragGuides = [];
+      renderCanvas();
+    }
+  }
+
+  function onShapeClick(e) {
+    e.stopPropagation();
+    var id = e.currentTarget.getAttribute("data-id");
+    if (state.tool === "connect") {
+      if (!state.connectFrom) {
+        state.connectFrom = { id: id, side: null };
+        renderCanvas();
+      } else if (state.connectFrom.id !== id) {
+        currentView().flows.push({ id: uid("flow"), from: state.connectFrom.id, to: id, fromSide: state.connectFrom.side, toSide: null });
+        state.connectFrom = null;
+        renderCanvas();
+      } else {
+        state.connectFrom = null;
+        renderCanvas();
+      }
+      return;
+    }
+    if (dragState && dragState.moved) return;
+    state.selectedId = id;
+    state.selectedFlowId = null;
+    renderCanvas();
+    renderInspector();
+  }
+
+  function renderInspector() {
+    var panel = els.inspector;
+    if (state.selectedId) {
+      var el = elementById(state.selectedId);
+      if (!el) { panel.innerHTML = ""; return; }
+      var extra = "";
+      if (el.type === "task" || el.type === "subprocess") {
+        extra +=
+          '<label class="field-label">Notas</label>' +
+          '<textarea id="inspNotes" class="text-input" rows="3" placeholder="Observações, links, detalhes...">' + escapeXML(el.notes || "") + "</textarea>";
+      }
+      if (el.type === "subprocess") {
+        var count = el.subElements ? el.subElements.length : 0;
+        extra +=
+          '<label class="field-label">Detalhamento</label>' +
+          '<p class="modal-text">' + (count ? count + " elemento(s) no diagrama detalhado." : "Ainda sem detalhamento.") + '</p>' +
+          '<button class="btn btn-ghost btn-block" id="inspOpenSub">Abrir detalhamento →</button>';
+      }
+      if (el.type === "pool") {
+        extra = '<p class="modal-text">Arraste o canto inferior direito da raia no diagrama para expandi-la.</p>';
+      }
+      panel.innerHTML =
+        '<h4 class="insp-title">Elemento selecionado</h4>' +
+        '<label class="field-label">Rótulo</label>' +
+        '<input type="text" id="inspLabel" class="text-input" value="' + escapeXML(el.label) + '" maxlength="80"/>' +
+        extra +
+        '<button class="btn btn-danger btn-block" id="inspDelete">Excluir elemento</button>';
+      document.getElementById("inspLabel").addEventListener("input", function (e2) {
+        el.label = e2.target.value;
+        if (el.type === "task" || el.type === "subprocess") recomputeBoxSize(el);
+        renderCanvas();
+      });
+      var notesEl = document.getElementById("inspNotes");
+      if (notesEl) {
+        notesEl.addEventListener("input", function (e3) {
+          el.notes = e3.target.value;
+          renderCanvas();
+        });
+      }
+      if (el.type === "subprocess") {
+        document.getElementById("inspOpenSub").addEventListener("click", function () { enterSubprocess(el.id); });
+      }
+      document.getElementById("inspDelete").addEventListener("click", function () {
+        currentView().elements = currentView().elements.filter(function (x) { return x.id !== el.id; });
+        // keep the view's own array reference in sync with the underlying container
+        var view = currentView();
+        if (view.ownerEl) { view.ownerEl.subElements = view.elements; }
+        else { state.current.elements = view.elements; }
+        currentView().flows = currentView().flows.filter(function (f) { return f.from !== el.id && f.to !== el.id; });
+        if (view.ownerEl) { view.ownerEl.subFlows = view.flows; } else { state.current.flows = view.flows; }
+        state.selectedId = null;
+        renderCanvas();
+        renderInspector();
+      });
+    } else if (state.selectedFlowId) {
+      var flow = currentView().flows.find(function (f) { return f.id === state.selectedFlowId; });
+      var hasPoints = flow && flow.points && flow.points.length;
+      panel.innerHTML =
+        '<h4 class="insp-title">Fluxo selecionado</h4>' +
+        '<label class="field-label">Rótulo (opcional)</label>' +
+        '<input type="text" id="inspFlowLabel" class="text-input" placeholder="Ex.: Sim / Não" value="' + escapeXML((flow && flow.label) || "") + '" maxlength="60"/>' +
+        '<p class="modal-text">Arraste os quadradinhos ao longo da seta para criar ou desfazer curvas em ângulo reto (só na horizontal ou vertical). Clique nos pontinhos coloridos nas bordas dos elementos para trocar de onde a seta sai ou onde ela chega.' +
+        (hasPoints ? " (" + flow.points.length + " curva(s) neste fluxo)" : "") + '</p>' +
+        '<button class="btn btn-danger btn-block" id="inspDeleteFlow">Excluir fluxo</button>';
+      document.getElementById("inspFlowLabel").addEventListener("input", function (e2) {
+        if (flow) flow.label = e2.target.value;
+        renderCanvas();
+      });
+      document.getElementById("inspDeleteFlow").addEventListener("click", function () {
+        currentView().flows = currentView().flows.filter(function (f) { return f.id !== state.selectedFlowId; });
+        var view = currentView();
+        if (view.ownerEl) { view.ownerEl.subFlows = view.flows; } else { state.current.flows = view.flows; }
+        state.selectedFlowId = null;
+        renderCanvas();
+        renderInspector();
+      });
+    } else {
+      panel.innerHTML =
+        '<h4 class="insp-title">Nada selecionado</h4>' +
+        '<p class="modal-text">Clique em um elemento para editar rótulo e notas, ou excluí-lo. Use "Conectar" e clique num dos 4 pontinhos nas bordas do elemento para ligar por um lado específico. Selecione uma seta para arrastar suas curvas (só na horizontal/vertical) ou trocar por onde ela entra e sai. Clique no "+" de um subprocesso para abrir o detalhamento. Itens podem se sobrepor — linhas tracejadas aparecem para ajudar a alinhar.</p>';
+    }
+  }
+
+  function updateToolButtons() {
+    els.btnSelect.classList.toggle("active", state.tool === "select");
+    els.btnConnect.classList.toggle("active", state.tool === "connect");
+    els.svg.classList.toggle("connect-mode", state.tool === "connect");
+  }
+
+  function saveCurrentProcess() {
+    var view = currentView();
+    if (!view.ownerEl) state.current.name = els.procNameInput.value.trim() || "Processo sem título";
+    else view.ownerEl.label = els.procNameInput.value.trim() || view.ownerEl.label;
+    state.current.updatedAt = Date.now();
+    var idx = state.processes.findIndex(function (p) { return p.id === state.current.id; });
+    var clone = JSON.parse(JSON.stringify(state.current));
+    if (idx >= 0) state.processes[idx] = clone;
+    else state.processes.push(clone);
+    persistProcessSave(clone);
+    renderBreadcrumb();
+    showToast("Processo salvo.");
+  }
+
+  function currentDiagramTitle() {
+    return state.viewStack.map(function (v) { return v.ownerEl ? v.ownerEl.label : state.current.name; }).join(" – ");
+  }
+
+  function sanitizeFileName(name) {
+    return (name || "processo").replace(/[^a-z0-9\-_ ]/gi, "").trim() || "processo";
+  }
+
+  /* ---------------- PDF export: bounding box + offscreen snapshot ---------------- */
+
+  function computeContentBBox(elements) {
+    if (!elements || !elements.length) return { x: 0, y: 0, w: 400, h: 260 };
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    elements.forEach(function (el) {
+      minX = Math.min(minX, el.x);
+      minY = Math.min(minY, el.y);
+      maxX = Math.max(maxX, el.x + el.w);
+      var extraBelow = (el.type === "task" || el.type === "subprocess" || el.type === "pool") ? 0 : 40;
+      maxY = Math.max(maxY, el.y + el.h + extraBelow);
+    });
+    var pad = 30;
+    var x = Math.max(0, minX - pad);
+    var y = Math.max(0, minY - pad);
+    return {
+      x: x,
+      y: y,
+      w: Math.min(CANVAS_W, maxX + pad) - x,
+      h: Math.min(CANVAS_H, maxY + pad) - y
+    };
+  }
+
+  function prepareSvgForExport(svgEl) {
+    var clone = svgEl.cloneNode(true);
+    clone.setAttribute("width", CANVAS_W);
+    clone.setAttribute("height", CANVAS_H);
+    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    inlineComputedStyleVars(clone);
+    Array.prototype.forEach.call(clone.querySelectorAll(".resize-handle, .port-handle, .seg-handle, .endpoint-handle"), function (n) { n.remove(); });
+    return new XMLSerializer().serializeToString(clone);
+  }
+
+  // Temporarily swaps the live canvas to render an arbitrary elements/flows
+  // list (any process's root diagram, regardless of what's currently open),
+  // captures a clean SVG snapshot, then restores the editor exactly as it was.
+  function buildExportSnapshot(elements, flows) {
+    var savedViewStack = state.viewStack;
+    var savedSelectedId = state.selectedId;
+    var savedSelectedFlowId = state.selectedFlowId;
+    var savedTool = state.tool;
+    var savedConnectFrom = state.connectFrom;
+    var savedGuides = state.dragGuides;
+
+    state.viewStack = [{ elements: elements, flows: flows, ownerEl: null }];
+    state.selectedId = null;
+    state.selectedFlowId = null;
+    state.tool = "select";
+    state.connectFrom = null;
+    state.dragGuides = [];
+    renderCanvas();
+
+    var svgMarkup = prepareSvgForExport(els.svg);
+    var bbox = computeContentBBox(elements);
+
+    state.viewStack = savedViewStack;
+    state.selectedId = savedSelectedId;
+    state.selectedFlowId = savedSelectedFlowId;
+    state.tool = savedTool;
+    state.connectFrom = savedConnectFrom;
+    state.dragGuides = savedGuides;
+    if (state.viewStack.length > 0) renderCanvas();
+
+    return { svgMarkup: svgMarkup, bbox: bbox };
+  }
+
+  function loadImageFromMarkup(svgMarkup) {
+    return new Promise(function (resolve) {
+      var blob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var img = new Image();
+      img.onload = function () { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+
+  // Resolves the logo as a { dataUrl, width, height } object, or null if the
+  // file is missing OR the browser refuses to read its pixels (this can
+  // happen when the page is opened directly via file:// instead of being
+  // served over http/https — the canvas is then considered "tainted" and
+  // jsPDF's addImage would throw deep inside PDF assembly). Converting to a
+  // data URL up front, with a try/catch, means that failure degrades to
+  // "no logo in the PDF" instead of silently breaking the download.
+  function loadLogoImage() {
+    return new Promise(function (resolve) {
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var canvas = document.createElement("canvas");
+          canvas.width = img.naturalWidth || img.width;
+          canvas.height = img.naturalHeight || img.height;
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0);
+          var dataUrl = canvas.toDataURL("image/png");
+          resolve({ dataUrl: dataUrl, width: canvas.width, height: canvas.height });
+        } catch (e) {
+          resolve(null);
+        }
+      };
+      img.onerror = function () { resolve(null); };
+      img.src = "logo.png";
+    });
+  }
+
+  // Renders one diagram into one or more page-sized canvases: a single page
+  // (shrunk to fit) when it's small/medium, or several A4 tiles at 1:1 scale
+  // when it's too large to stay legible on one page.
+  async function renderDiagramPages(elements, flows, layout) {
+    var snapshot = buildExportSnapshot(elements, flows);
+    var bbox = snapshot.bbox;
+    var img = await loadImageFromMarkup(snapshot.svgMarkup);
+    if (!img) return [];
+
+    var outRes = 2; // raster resolution multiplier, independent of page layout
+    var fitScale = Math.min(layout.contentW / bbox.w, layout.contentH / bbox.h);
+    var useSinglePage = fitScale >= 0.55;
+    var pages = [];
+
+    function makeCanvas(sx, sy, sw, sh) {
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(sw * outRes));
+      canvas.height = Math.max(1, Math.round(sh * outRes));
+      var ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#EFF1EA";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    }
+
+    if (useSinglePage) {
+      var scale = Math.min(fitScale, 1.3);
+      pages.push({ canvas: makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h), w: bbox.w * scale, h: bbox.h * scale });
+    } else {
+      var tileW = layout.contentW;
+      var tileH = layout.contentH;
+      var cols = Math.max(1, Math.ceil(bbox.w / tileW));
+      var rows = Math.max(1, Math.ceil(bbox.h / tileH));
+      for (var r = 0; r < rows; r++) {
+        for (var c = 0; c < cols; c++) {
+          var sx = bbox.x + c * tileW;
+          var sy = bbox.y + r * tileH;
+          var sw = Math.min(tileW, bbox.x + bbox.w - sx);
+          var sh = Math.min(tileH, bbox.y + bbox.h - sy);
+          pages.push({ canvas: makeCanvas(sx, sy, sw, sh), w: sw, h: sh });
+        }
+      }
+    }
+    return pages;
+  }
+
+  async function generateExportPlan(diagrams) {
+    var layout = { PAGE_W: 1123, PAGE_H: 794, HEADER_H: 64, FOOTER_H: 38, MARGIN: 26 };
+    layout.contentW = layout.PAGE_W - layout.MARGIN * 2;
+    layout.contentH = layout.PAGE_H - layout.HEADER_H - layout.FOOTER_H - layout.MARGIN * 2;
+    var groups = [];
+    for (var i = 0; i < diagrams.length; i++) {
+      var pages = await renderDiagramPages(diagrams[i].elements, diagrams[i].flows, layout);
+      groups.push({ title: diagrams[i].title, code: diagrams[i].code, pages: pages });
+    }
+    return { groups: groups, layout: layout };
+  }
+
+  function drawPdfPageBackground(pdf, layout) {
+    pdf.setFillColor(239, 241, 234); // --paper
+    pdf.rect(0, 0, layout.PAGE_W, layout.PAGE_H, "F");
+    pdf.setFillColor(43, 110, 99); // --accent, top cover band
+    pdf.rect(0, 0, layout.PAGE_W, 5, "F");
+  }
+
+  function drawPdfHeader(pdf, layout, title, subtitle, logoInfo) {
+    pdf.setDrawColor(206, 211, 197);
+    pdf.setLineWidth(1);
+    pdf.line(layout.MARGIN, layout.HEADER_H - 10, layout.PAGE_W - layout.MARGIN, layout.HEADER_H - 10);
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(17);
+    pdf.setTextColor(23, 27, 36);
+    pdf.text(title, layout.MARGIN, layout.HEADER_H / 2 - 1);
+    if (subtitle) {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(9.5);
+      pdf.setTextColor(98, 107, 92);
+      pdf.text(subtitle, layout.MARGIN, layout.HEADER_H / 2 + 15);
+    }
+    if (logoInfo) {
+      try {
+        var logoH = 26;
+        var logoW = logoInfo.width * (logoH / logoInfo.height);
+        var padX = 10, padY = 8;
+        var boxW = logoW + padX * 2;
+        var boxH = logoH + padY * 2;
+        var boxX = layout.PAGE_W - layout.MARGIN - boxW;
+        var boxY = (layout.HEADER_H - boxH) / 2 - 3;
+        pdf.setFillColor(23, 27, 36);
+        pdf.roundedRect(boxX, boxY, boxW, boxH, 4, 4, "F");
+        pdf.addImage(logoInfo.dataUrl, "PNG", boxX + padX, boxY + padY, logoW, logoH);
+      } catch (e) {
+        console.error("Could not draw logo in PDF header", e);
+      }
+    }
+  }
+
+  function drawPdfFooter(pdf, layout, pageNum, totalPages, generatedAt) {
+    var y = layout.PAGE_H - layout.FOOTER_H + 10;
+    pdf.setDrawColor(206, 211, 197);
+    pdf.setLineWidth(1);
+    pdf.line(layout.MARGIN, y - 12, layout.PAGE_W - layout.MARGIN, y - 12);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(9);
+    pdf.setTextColor(98, 107, 92);
+    pdf.text("ProcessFlow  ·  gerado em " + generatedAt, layout.MARGIN, y);
+    pdf.text("Página " + pageNum + " de " + totalPages, layout.PAGE_W - layout.MARGIN, y, { align: "right" });
+  }
+
+  function assemblePDF(exportPlan, logoInfo) {
+    var jsPDFCtor = window.jspdf && window.jspdf.jsPDF;
+    if (!jsPDFCtor) return null;
+    var layout = exportPlan.layout;
+    var pdf = new jsPDFCtor({ orientation: "landscape", unit: "px", format: [layout.PAGE_W, layout.PAGE_H] });
+    var totalPages = 0;
+    exportPlan.groups.forEach(function (g) { totalPages += g.pages.length; });
+    var generatedAt = formatDate(Date.now());
+    var framePad = 10;
+    var pageNum = 0;
+    exportPlan.groups.forEach(function (g) {
+      g.pages.forEach(function (pg, idx) {
+        pageNum++;
+        if (pageNum > 1) pdf.addPage([layout.PAGE_W, layout.PAGE_H], "landscape");
+        drawPdfPageBackground(pdf, layout);
+        var partBadge = g.pages.length > 1 ? "parte " + (idx + 1) + " de " + g.pages.length : null;
+        var subtitle = "Diagrama de processo · BPMN" + (g.code ? "  ·  " + g.code : "") + (partBadge ? "  ·  " + partBadge : "");
+        drawPdfHeader(pdf, layout, g.title, subtitle, logoInfo);
+
+        var availW = layout.contentW - framePad * 2;
+        var availH = layout.contentH - framePad * 2;
+        var ratio = Math.min(availW / pg.w, availH / pg.h, 1);
+        var drawW = pg.w * ratio, drawH = pg.h * ratio;
+        var offsetX = layout.MARGIN + framePad + (availW - drawW) / 2;
+        var offsetY = layout.HEADER_H + layout.MARGIN + framePad + (availH - drawH) / 2;
+
+        pdf.setDrawColor(206, 211, 197);
+        pdf.setLineWidth(1);
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(offsetX - framePad, offsetY - framePad, drawW + framePad * 2, drawH + framePad * 2, "FD");
+        pdf.addImage(pg.canvas.toDataURL("image/png"), "PNG", offsetX, offsetY, drawW, drawH);
+
+        drawPdfFooter(pdf, layout, pageNum, totalPages, generatedAt);
+      });
+    });
+    return pdf;
+  }
+
+  /* ---------------- PDF export: preview modal ---------------- */
+
+  function openExportPreview(exportPlan, onConfirm) {
+    var totalPages = 0;
+    exportPlan.groups.forEach(function (g) { totalPages += g.pages.length; });
+    var html =
+      '<h3 class="modal-title">Pré-visualização do PDF</h3>' +
+      '<p class="modal-text">' + totalPages + ' página(s) no total.</p>' +
+      '<div class="pdf-preview-scroll">';
+    exportPlan.groups.forEach(function (g) {
+      if (!g.pages.length) return;
+      g.pages.forEach(function (pg, idx) {
+        html +=
+          '<div class="pdf-preview-page">' +
+          '<img src="' + pg.canvas.toDataURL("image/png") + '" alt="Página do PDF"/>' +
+          '<span class="pdf-preview-label">' + escapeXML(g.title) + (g.pages.length > 1 ? " — parte " + (idx + 1) + "/" + g.pages.length : "") + "</span>" +
+          "</div>";
+      });
+    });
+    html +=
+      "</div>" +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelPdfPreview">Cancelar</button>' +
+      '<button class="btn btn-primary" id="confirmPdfPreview">Baixar PDF</button>' +
+      "</div>";
+    openModal(html, "modal-wide");
+    document.getElementById("cancelPdfPreview").onclick = closeModal;
+    document.getElementById("confirmPdfPreview").onclick = function () {
+      closeModal();
+      onConfirm();
+    };
+  }
+
+  function exportCurrentDiagram() {
+    showToast("Preparando pré-visualização...");
+    var title = currentDiagramTitle();
+    var code = state.current ? processCode({ id: state.current.id }) : null;
+    var diagrams = [{ title: title, elements: currentView().elements, flows: currentView().flows, code: code }];
+    Promise.all([generateExportPlan(diagrams), loadLogoImage()]).then(function (results) {
+      var exportPlan = results[0], logoInfo = results[1];
+      if (!exportPlan.groups[0] || !exportPlan.groups[0].pages.length) {
+        showToast("Não foi possível gerar o PDF.");
+        return;
+      }
+      openExportPreview(exportPlan, function () {
+        try {
+          var pdf = assemblePDF(exportPlan, logoInfo);
+          if (!pdf) { showToast("Não foi possível gerar o PDF."); return; }
+          pdf.save(sanitizeFileName(title) + ".pdf");
+          showToast("PDF exportado.");
+        } catch (e) {
+          console.error("PDF export failed", e);
+          showToast("Não foi possível gerar o PDF.");
+        }
+      });
+    }).catch(function () { showToast("Não foi possível gerar a pré-visualização."); });
+  }
+
+  function exportAllProcesses() {
+    if (!state.processes.length) { showToast("Nenhum processo para exportar."); return; }
+    showToast("Preparando pré-visualização...");
+    var diagrams = state.processes.slice().sort(function (a, b) { return a.name.localeCompare(b.name); })
+      .map(function (p) { return { title: p.name, elements: p.elements, flows: p.flows, code: processCode(p) }; });
+    Promise.all([generateExportPlan(diagrams), loadLogoImage()]).then(function (results) {
+      var exportPlan = results[0], logoInfo = results[1];
+      openExportPreview(exportPlan, function () {
+        try {
+          var pdf = assemblePDF(exportPlan, logoInfo);
+          if (!pdf) { showToast("Não foi possível gerar o PDF."); return; }
+          pdf.save("processflow-todos-os-processos.pdf");
+          showToast("PDF exportado.");
+        } catch (e) {
+          console.error("PDF export failed", e);
+          showToast("Não foi possível gerar o PDF.");
+        }
+      });
+    }).catch(function () { showToast("Não foi possível gerar a pré-visualização."); });
+  }
+
+  function inlineComputedStyleVars(svgClone) {
+    var cssVars = [
+      "--line", "--surface", "--flow-event", "--flow-task", "--flow-gateway",
+      "--accent", "--accent-soft", "--ink", "--ink-soft", "--paper", "--paper-grid", "--pool-fill",
+      "--text", "--border", "--font-body", "--font-mono"
+    ];
+    var rootStyle = getComputedStyle(document.documentElement);
+    var styleStr = ":root{";
+    cssVars.forEach(function (v) { styleStr += v + ":" + rootStyle.getPropertyValue(v) + ";"; });
+    styleStr += "}";
+    var styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
+    styleEl.textContent = styleStr;
+    svgClone.insertBefore(styleEl, svgClone.firstChild);
+  }
+
+  /* ---------------- Wire up events on load ---------------- */
+
+  document.addEventListener("DOMContentLoaded", function () {
+    els.dashboardView = document.getElementById("dashboardView");
+    els.editorView = document.getElementById("editorView");
+    els.processList = document.getElementById("processList");
+    els.modalOverlay = document.getElementById("modalOverlay");
+    els.modalBody = document.getElementById("modalBody");
+    els.toast = document.getElementById("toast");
+    els.paletteBody = document.getElementById("paletteBody");
+    els.svg = document.getElementById("diagramSvg");
+    els.canvasWrap = document.getElementById("canvasWrap");
+    els.inspector = document.getElementById("inspector");
+    els.procNameInput = document.getElementById("procNameInput");
+    els.btnSelect = document.getElementById("btnSelect");
+    els.btnConnect = document.getElementById("btnConnect");
+    els.breadcrumbBar = document.getElementById("breadcrumbBar");
+    els.noteTooltip = document.getElementById("noteTooltip");
+
+    document.getElementById("btnNewProcess").addEventListener("click", openNewProcessModal);
+    els.processList.addEventListener("click", onProcessListClick);
+    document.getElementById("btnExportData").addEventListener("click", exportAllData);
+    document.getElementById("btnExportAllPdf").addEventListener("click", exportAllProcesses);
+    document.getElementById("btnImportData").addEventListener("click", function () {
+      document.getElementById("importFileInput").click();
+    });
+    document.getElementById("importFileInput").addEventListener("change", function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (file) importDataFromFile(file);
+      e.target.value = "";
+    });
+
+    els.modalOverlay.addEventListener("click", function (e) { if (e.target === els.modalOverlay) closeModal(); });
+
+    document.getElementById("btnBack").addEventListener("click", goBack);
+    document.getElementById("btnSave").addEventListener("click", saveCurrentProcess);
+    document.getElementById("btnExport").addEventListener("click", exportCurrentDiagram);
+    els.btnSelect.addEventListener("click", function () {
+      state.tool = "select";
+      state.connectFrom = null;
+      updateToolButtons();
+      renderCanvas();
+    });
+    els.btnConnect.addEventListener("click", function () {
+      state.tool = "connect";
+      updateToolButtons();
+      renderCanvas();
+    });
+    els.procNameInput.addEventListener("input", function () {
+      var view = currentView();
+      if (!view.ownerEl) { /* applied on save for the root process name */ }
+      renderBreadcrumb();
+    });
+
+    els.canvasWrap.addEventListener("dragover", function (e) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    els.canvasWrap.addEventListener("drop", function (e) {
+      e.preventDefault();
+      var type = e.dataTransfer.getData("text/plain");
+      if (!type) return;
+      var pt = svgPoint(e);
+      addElement(type, pt.x, pt.y);
+    });
+
+    els.svg.addEventListener("click", function () {
+      if (state.tool === "connect") return;
+      state.selectedId = null;
+      state.selectedFlowId = null;
+      renderCanvas();
+      renderInspector();
+    });
+
+    document.addEventListener("keydown", function (e) {
+      if (!state.current) return;
+      var tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if ((e.key === "Delete" || e.key === "Backspace") && state.selectedId) {
+        var el = elementById(state.selectedId);
+        if (el) {
+          currentView().elements = currentView().elements.filter(function (x) { return x.id !== el.id; });
+          var view = currentView();
+          if (view.ownerEl) view.ownerEl.subElements = view.elements; else state.current.elements = view.elements;
+          currentView().flows = currentView().flows.filter(function (f) { return f.from !== el.id && f.to !== el.id; });
+          if (view.ownerEl) view.ownerEl.subFlows = view.flows; else state.current.flows = view.flows;
+          state.selectedId = null;
+          renderCanvas();
+          renderInspector();
+        }
+      } else if ((e.key === "Delete" || e.key === "Backspace") && state.selectedFlowId) {
+        currentView().flows = currentView().flows.filter(function (f) { return f.id !== state.selectedFlowId; });
+        var view2 = currentView();
+        if (view2.ownerEl) view2.ownerEl.subFlows = view2.flows; else state.current.flows = view2.flows;
+        state.selectedFlowId = null;
+        renderCanvas();
+        renderInspector();
+      } else if (e.key === "Escape") {
+        state.connectFrom = null;
+        state.tool = "select";
+        updateToolButtons();
+        renderCanvas();
+      }
+    });
+
+    initStorageAndLoad();
+  });
+})();
+
+</script>
+</body>
+</html>
