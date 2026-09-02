@@ -18,12 +18,12 @@
      próprios processos (localStorage), sem sincronizar com os outros.
      ====================================================================== */
   window.PROCESSFLOW_FIREBASE_CONFIG = {
-    apiKey: "COLE_AQUI",
-    authDomain: "SEU-PROJETO.firebaseapp.com",
-    projectId: "SEU-PROJETO",
-    storageBucket: "SEU-PROJETO.appspot.com",
-    messagingSenderId: "COLE_AQUI",
-    appId: "COLE_AQUI"
+    apiKey: "AIzaSyACKShbrzAe0nJQKIvt5o47Vvo7lfserog",
+    authDomain: "processflow-painel.firebaseapp.com",
+    projectId: "processflow-painel",
+    storageBucket: "processflow-painel.firebasestorage.app",
+    messagingSenderId: "930994700689",
+    appId: "1:930994700689:web:debb6e48e413fbc7f25a30"
   };
 </script>
 <style>
@@ -183,6 +183,15 @@ html, body {
 }
 .toolbar-sep { width: 1px; height: 26px; background: #333c4d; }
 .toolbar-logo { height: 24px; width: auto; display: block; flex-shrink: 0; }
+.autosave-status {
+  font-size: 11.5px;
+  color: #9aa3b5;
+  font-family: var(--font-mono);
+  opacity: 0;
+  transition: opacity 0.35s;
+  white-space: nowrap;
+}
+.autosave-status.show { opacity: 1; }
 #procNameInput {
   font-family: var(--font-display);
   font-size: 15px;
@@ -422,7 +431,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
           <li><span class="dot" style="background:var(--flow-gateway)"></span> Gateways / Decisões</li>
         </ul>
       </div>
-      <p class="sidebar-note"><strong>Sobre os dados</strong><br/>Este arquivo funciona sozinho, sem servidor. Os processos ficam salvos neste navegador. Use "Exportar dados" e envie o arquivo para o grupo importar e continuar editando junto.</p>
+      <p class="sidebar-note"><strong>Sobre os dados</strong><br/>Tudo é salvo automaticamente enquanto você edita. Com o Firestore configurado, fica sincronizado em tempo real com o grupo; sem ele, os processos ficam salvos apenas neste navegador — use "Exportar dados" para compartilhar manualmente.</p>
     </aside>
 
     <main class="dashboard-main">
@@ -454,6 +463,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         <button class="btn" id="btnConnect">Conectar</button>
       </div>
       <div class="toolbar-sep"></div>
+      <span id="autoSaveStatus" class="autosave-status"></span>
       <button class="btn btn-ghost" id="btnSave" style="color:var(--paper); border-color:#333c4d;">Salvar</button>
       <button class="btn btn-primary" id="btnExport">Exportar PDF</button>
     </div>
@@ -1266,6 +1276,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     state.selectedFlowId = null;
     renderCanvas();
     renderInspector();
+    scheduleAutoSave();
   }
 
   function elementById(id) {
@@ -1540,6 +1551,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         } else if (state.connectFrom.id !== id) {
           currentView().flows.push({ id: uid("flow"), from: state.connectFrom.id, to: id, fromSide: state.connectFrom.side, toSide: side });
           state.connectFrom = null;
+          scheduleAutoSave();
         } else {
           state.connectFrom = { id: id, side: side };
         }
@@ -1599,6 +1611,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         flow.points = []; // start fresh from the newly chosen port
         renderCanvas();
         renderInspector();
+        scheduleAutoSave();
       });
     });
   }
@@ -1666,6 +1679,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         flow.points = simplified.slice(1, simplified.length - 1);
         renderCanvas();
         renderInspector();
+        scheduleAutoSave();
       }
     }
     segmentDragState = null;
@@ -1715,11 +1729,13 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
   function onShapeMouseUp() {
     window.removeEventListener("mousemove", onShapeMouseMove);
     window.removeEventListener("mouseup", onShapeMouseUp);
+    var moved = dragState && dragState.moved;
     dragState = null;
     if (state.dragGuides.length) {
       state.dragGuides = [];
       renderCanvas();
     }
+    if (moved) scheduleAutoSave();
   }
 
   function onResizeMouseDown(e) {
@@ -1752,11 +1768,13 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
   function onResizeMouseUp() {
     window.removeEventListener("mousemove", onResizeMouseMove);
     window.removeEventListener("mouseup", onResizeMouseUp);
+    var wasResizing = !!resizeState;
     resizeState = null;
     if (state.dragGuides.length) {
       state.dragGuides = [];
       renderCanvas();
     }
+    if (wasResizing) scheduleAutoSave();
   }
 
   function onShapeClick(e) {
@@ -1770,6 +1788,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         currentView().flows.push({ id: uid("flow"), from: state.connectFrom.id, to: id, fromSide: state.connectFrom.side, toSide: null });
         state.connectFrom = null;
         renderCanvas();
+        scheduleAutoSave();
       } else {
         state.connectFrom = null;
         renderCanvas();
@@ -1814,12 +1833,14 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         el.label = e2.target.value;
         if (el.type === "task" || el.type === "subprocess") recomputeBoxSize(el);
         renderCanvas();
+        scheduleAutoSave();
       });
       var notesEl = document.getElementById("inspNotes");
       if (notesEl) {
         notesEl.addEventListener("input", function (e3) {
           el.notes = e3.target.value;
           renderCanvas();
+          scheduleAutoSave();
         });
       }
       if (el.type === "subprocess") {
@@ -1836,6 +1857,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         state.selectedId = null;
         renderCanvas();
         renderInspector();
+        scheduleAutoSave();
       });
     } else if (state.selectedFlowId) {
       var flow = currentView().flows.find(function (f) { return f.id === state.selectedFlowId; });
@@ -1850,6 +1872,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       document.getElementById("inspFlowLabel").addEventListener("input", function (e2) {
         if (flow) flow.label = e2.target.value;
         renderCanvas();
+        scheduleAutoSave();
       });
       document.getElementById("inspDeleteFlow").addEventListener("click", function () {
         currentView().flows = currentView().flows.filter(function (f) { return f.id !== state.selectedFlowId; });
@@ -1858,6 +1881,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         state.selectedFlowId = null;
         renderCanvas();
         renderInspector();
+        scheduleAutoSave();
       });
     } else {
       panel.innerHTML =
@@ -1872,16 +1896,66 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     els.svg.classList.toggle("connect-mode", state.tool === "connect");
   }
 
-  function saveCurrentProcess() {
-    var view = currentView();
-    if (!view.ownerEl) state.current.name = els.procNameInput.value.trim() || "Processo sem título";
-    else view.ownerEl.label = els.procNameInput.value.trim() || view.ownerEl.label;
-    state.current.updatedAt = Date.now();
-    var idx = state.processes.findIndex(function (p) { return p.id === state.current.id; });
+  var autoSaveTimer = null;
+  var autoSaveStatusTimer = null;
+
+  function buildProcessClone() {
     var clone = JSON.parse(JSON.stringify(state.current));
+    if (!clone.name || !clone.name.trim()) clone.name = "Processo sem título";
+    clone.updatedAt = Date.now();
+    return clone;
+  }
+
+  function commitCurrentProcess(clone) {
+    var idx = state.processes.findIndex(function (p) { return p.id === clone.id; });
     if (idx >= 0) state.processes[idx] = clone;
     else state.processes.push(clone);
     persistProcessSave(clone);
+  }
+
+  function flashAutoSaveStatus() {
+    if (!els.autoSaveStatus) return;
+    els.autoSaveStatus.textContent = "Salvo automaticamente";
+    els.autoSaveStatus.classList.add("show");
+    clearTimeout(autoSaveStatusTimer);
+    autoSaveStatusTimer = setTimeout(function () {
+      els.autoSaveStatus.classList.remove("show");
+    }, 1800);
+  }
+
+  // Debounced real-time save: any edit in the editor calls this; it waits for
+  // a short pause in activity before actually writing, so fast successive
+  // changes (dragging, typing) don't spam the database with a write per
+  // pixel/keystroke.
+  function scheduleAutoSave() {
+    if (!state.current) return;
+    clearTimeout(autoSaveTimer);
+    autoSaveTimer = setTimeout(function () {
+      autoSaveTimer = null;
+      var clone = buildProcessClone();
+      commitCurrentProcess(clone);
+      flashAutoSaveStatus();
+    }, 900);
+  }
+
+  // Flushes a pending autosave immediately (used on manual Save and when the
+  // tab is about to close/hide) instead of waiting out the debounce delay.
+  function flushAutoSave() {
+    if (autoSaveTimer) {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = null;
+    }
+    if (!state.current) return;
+    var clone = buildProcessClone();
+    commitCurrentProcess(clone);
+  }
+
+  function saveCurrentProcess() {
+    if (!state.current) return;
+    var view = currentView();
+    if (!view.ownerEl) state.current.name = els.procNameInput.value.trim() || "Processo sem título";
+    else view.ownerEl.label = els.procNameInput.value.trim() || view.ownerEl.label;
+    flushAutoSave();
     renderBreadcrumb();
     showToast("Processo salvo.");
   }
@@ -2267,6 +2341,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     els.btnSelect = document.getElementById("btnSelect");
     els.btnConnect = document.getElementById("btnConnect");
     els.breadcrumbBar = document.getElementById("breadcrumbBar");
+    els.autoSaveStatus = document.getElementById("autoSaveStatus");
     els.noteTooltip = document.getElementById("noteTooltip");
 
     document.getElementById("btnNewProcess").addEventListener("click", openNewProcessModal);
@@ -2300,8 +2375,10 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     });
     els.procNameInput.addEventListener("input", function () {
       var view = currentView();
-      if (!view.ownerEl) { /* applied on save for the root process name */ }
+      if (!view.ownerEl) state.current.name = els.procNameInput.value;
+      else view.ownerEl.label = els.procNameInput.value;
       renderBreadcrumb();
+      scheduleAutoSave();
     });
 
     els.canvasWrap.addEventListener("dragover", function (e) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
@@ -2336,6 +2413,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
           state.selectedId = null;
           renderCanvas();
           renderInspector();
+          scheduleAutoSave();
         }
       } else if ((e.key === "Delete" || e.key === "Backspace") && state.selectedFlowId) {
         currentView().flows = currentView().flows.filter(function (f) { return f.id !== state.selectedFlowId; });
@@ -2344,6 +2422,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         state.selectedFlowId = null;
         renderCanvas();
         renderInspector();
+        scheduleAutoSave();
       } else if (e.key === "Escape") {
         state.connectFrom = null;
         state.tool = "select";
@@ -2351,6 +2430,11 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
         renderCanvas();
       }
     });
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "hidden") flushAutoSave();
+    });
+    window.addEventListener("beforeunload", function () { flushAutoSave(); });
 
     initStorageAndLoad();
   });
