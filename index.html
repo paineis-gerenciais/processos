@@ -291,12 +291,59 @@ html, body {
 .pi-gatewayExclusive, .pi-gatewayParallel { border-color: var(--flow-gateway); transform: rotate(45deg); border-radius: 2px; }
 .pi-pool { border-color: var(--ink); }
 
-.canvas-wrap {
+.canvas-area {
   flex: 1;
-  overflow: auto;
   position: relative;
+  min-width: 0;
+}
+.canvas-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
   background: var(--paper);
 }
+.zoom-controls {
+  position: absolute;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--ink);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 8px 22px rgba(0,0,0,0.28);
+  z-index: 10;
+}
+.zoom-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--paper);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-body);
+}
+.zoom-btn:hover { background: #2a3040; }
+.zoom-label {
+  min-width: 48px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #cfd4de;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 2px;
+  border-radius: 6px;
+}
+.zoom-label:hover { color: #fff; background: #2a3040; }
 #diagramSvg { display: block; background: var(--paper); cursor: default; }
 #diagramSvg.connect-mode { cursor: crosshair; }
 .shape { cursor: grab; }
@@ -323,6 +370,52 @@ html, body {
   margin: 12px 0 6px;
 }
 .field-label:first-of-type { margin-top: 0; }
+
+.compass-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  grid-template-rows: repeat(3, 30px);
+  gap: 4px;
+  margin: 2px 0 4px;
+}
+.compass-btn {
+  width: 30px; height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.compass-btn:hover { background: var(--paper); color: var(--text); }
+.compass-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.compass-center {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+}
+.compass-center::after {
+  content: "";
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--flow-gateway);
+  opacity: 0.5;
+}
+
+.seg-group { display: flex; gap: 6px; margin: 2px 0 4px; }
+.seg-btn {
+  flex: 1;
+  padding: 7px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.seg-btn:hover { background: var(--paper); color: var(--text); }
+.seg-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 .text-input, textarea.text-input {
   width: 100%;
   padding: 9px 11px;
@@ -333,6 +426,7 @@ html, body {
   background: var(--paper);
 }
 textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
+textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
 .text-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; background: #fff; }
 
 .modal-text { font-size: 13.5px; color: var(--text-muted); line-height: 1.5; }
@@ -472,8 +566,15 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
 
     <div class="editor-body">
       <div class="palette" id="paletteBody"></div>
-      <div class="canvas-wrap" id="canvasWrap">
-        <svg id="diagramSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="canvas-area">
+        <div class="canvas-wrap" id="canvasWrap">
+          <svg id="diagramSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+        <div class="zoom-controls">
+          <button class="zoom-btn" id="btnZoomOut" title="Diminuir zoom">−</button>
+          <button class="zoom-label" id="zoomLabel" title="Restaurar para 100%">100%</button>
+          <button class="zoom-btn" id="btnZoomIn" title="Aumentar zoom">+</button>
+        </div>
       </div>
       <div class="inspector" id="inspector"></div>
     </div>
@@ -495,8 +596,12 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
   "use strict";
 
   var STORAGE_KEY = "processflow:processes";
-  var CANVAS_W = 1800;
-  var CANVAS_H = 1100;
+  var BASE_CANVAS_W = 1800;
+  var BASE_CANVAS_H = 1100;
+  var CANVAS_GROW_PADDING = 400; // breathing room kept beyond the furthest element
+  var MAX_COORD = 20000; // generous sanity ceiling, not a practical limit
+  var CANVAS_W = BASE_CANVAS_W;
+  var CANVAS_H = BASE_CANVAS_H;
   var MIN_POOL_W = 260;
   var MIN_POOL_H = 120;
 
@@ -541,7 +646,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     connectFrom: null,
     selectedId: null,
     selectedFlowId: null,
-    dragGuides: []
+    dragGuides: [],
+    zoom: 1
   };
 
   var els = {};
@@ -555,6 +661,14 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" }[c];
     });
+  }
+
+  // Grows a textarea's height to fit its content instead of scrolling
+  // internally, used for the label fields in the side panel.
+  function autoGrowTextarea(ta) {
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = ta.scrollHeight + "px";
   }
 
   function formatDate(ts) {
@@ -587,6 +701,32 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     var dy = towardPoint.y - c.y;
     if (Math.abs(dx) > Math.abs(dy)) return dx >= 0 ? "right" : "left";
     return dy >= 0 ? "bottom" : "top";
+  }
+
+  // Walks the full polyline (across every bend) and returns the point sitting
+  // at fraction t of the total path length — used to place a flow's label at
+  // its start, middle, or end regardless of how many knees it has.
+  function pointAlongPath(pts, t) {
+    var segLens = [];
+    var total = 0;
+    for (var i = 0; i < pts.length - 1; i++) {
+      var d = Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+      segLens.push(d);
+      total += d;
+    }
+    if (total === 0) return pts[0];
+    var target = Math.max(0, Math.min(1, t)) * total;
+    var acc = 0;
+    for (var j = 0; j < segLens.length; j++) {
+      if (acc + segLens[j] >= target || j === segLens.length - 1) {
+        var segT = segLens[j] > 0 ? (target - acc) / segLens[j] : 0;
+        segT = Math.max(0, Math.min(1, segT));
+        var a = pts[j], b = pts[j + 1];
+        return { x: a.x + (b.x - a.x) * segT, y: a.y + (b.y - a.y) * segT };
+      }
+      acc += segLens[j];
+    }
+    return pts[pts.length - 1];
   }
 
   function dedupePoints(pts) {
@@ -1159,6 +1299,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     state.connectFrom = null;
     state.selectedId = null;
     state.selectedFlowId = null;
+    state.zoom = 1;
     els.dashboardView.classList.add("hidden");
     els.editorView.classList.remove("hidden");
     renderPalette();
@@ -1166,6 +1307,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     renderCanvas();
     renderInspector();
     updateToolButtons();
+    updateZoomLabel();
     syncTitleInput();
   }
 
@@ -1266,8 +1408,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
 
   function addElement(type, x, y) {
     var size = DEFAULT_SIZE[type];
-    var elX = Math.max(0, Math.min(CANVAS_W - size.w, x - size.w / 2));
-    var elY = Math.max(0, Math.min(CANVAS_H - size.h, y - size.h / 2));
+    var elX = Math.max(0, Math.min(MAX_COORD - size.w, x - size.w / 2));
+    var elY = Math.max(0, Math.min(MAX_COORD - size.h, y - size.h / 2));
     var el = { id: uid("el"), type: type, x: elX, y: elY, w: size.w, h: size.h, label: DEFAULT_LABEL[type] };
     if (type === "subprocess") { el.subElements = []; el.subFlows = []; }
     if (type === "task" || type === "subprocess") { el.notes = ""; recomputeBoxSize(el); }
@@ -1296,6 +1438,86 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     return { x: c.x + dx * scale, y: c.y + dy * scale };
   }
 
+  var GATEWAY_LABEL_POSITIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+
+  function gatewayLabelAnchor(w, h, pos) {
+    var gap = 10, diag = gap * 0.75;
+    switch (pos) {
+      case "N": return { x: w / 2, y: -gap, anchor: "middle", vAlign: "bottom" };
+      case "E": return { x: w + gap, y: h / 2, anchor: "start", vAlign: "middle" };
+      case "S": return { x: w / 2, y: h + gap, anchor: "middle", vAlign: "top" };
+      case "W": return { x: -gap, y: h / 2, anchor: "end", vAlign: "middle" };
+      case "NE": return { x: w + diag, y: -diag, anchor: "start", vAlign: "bottom" };
+      case "SE": return { x: w + diag, y: h + diag, anchor: "start", vAlign: "top" };
+      case "SW": return { x: -diag, y: h + diag, anchor: "end", vAlign: "top" };
+      case "NW": return { x: -diag, y: -diag, anchor: "end", vAlign: "bottom" };
+      default: return { x: w / 2, y: h + gap, anchor: "middle", vAlign: "top" };
+    }
+  }
+
+  // Wraps a lane's name into up to two lines that run the height of its
+  // header strip, instead of one line that could run past the lane's own
+  // edges when the name is long.
+  // Wraps a lane's name to fit the height of its header strip. The strip
+  // itself grows wider to fit however many lines are needed, so long names
+  // never overlap each other.
+  function poolHeaderLines(el) {
+    var font = "500 13px JetBrains Mono, monospace";
+    var maxRun = Math.max(40, el.h - 24);
+    return wrapTextToWidth(el.label, font, maxRun);
+  }
+
+  function poolHeaderStripWidth(el) {
+    var lineThickness = 14;
+    return Math.max(34, poolHeaderLines(el).length * lineThickness + 12);
+  }
+
+  function poolHeaderLabelSVG(el, stripWidth) {
+    var lines = poolHeaderLines(el);
+    var lineThickness = 14;
+    var n = lines.length;
+    var centerX = stripWidth / 2;
+    var cy = el.h / 2;
+    var startY = cy - ((n - 1) * lineThickness) / 2;
+    var tspans = lines.map(function (ln, i) {
+      return '<tspan x="' + centerX + '" y="' + (startY + i * lineThickness) + '">' + escapeXML(ln) + "</tspan>";
+    }).join("");
+    return '<text class="pool-header-label" text-anchor="middle" fill="var(--paper)" font-family="var(--font-mono)" font-size="13" transform="rotate(-90 ' + centerX + " " + cy + ')">' + tspans + "</text>";
+  }
+
+  // Gateway labels get a small backing plate (soft, semi-transparent — not a
+  // hard box) so a connector passing behind the text doesn't cut through it,
+  // plus a choice of 8 compass positions around the diamond.
+  function gatewayLabelSVG(el) {
+    if (!el.label) return "";
+    var font = "500 12px Inter, sans-serif";
+    var lines = wrapTextToWidth(el.label, font, 90);
+    measureCtx.font = font;
+    var maxLineW = 0;
+    lines.forEach(function (l) { maxLineW = Math.max(maxLineW, measureCtx.measureText(l).width); });
+    var lh = 15;
+    var n = lines.length;
+    var a = gatewayLabelAnchor(el.w, el.h, el.labelPos || "S");
+    var baselines = [];
+    for (var i = 0; i < n; i++) {
+      if (a.vAlign === "top") baselines.push(a.y + i * lh + 10);
+      else if (a.vAlign === "bottom") baselines.push(a.y - (n - 1 - i) * lh - 4);
+      else baselines.push(a.y - (n - 1) * lh / 2 + i * lh + 4);
+    }
+    var tspans = lines.map(function (ln, i) {
+      return '<tspan x="' + a.x + '" y="' + baselines[i] + '">' + escapeXML(ln) + "</tspan>";
+    }).join("");
+    var padX = 5, padY = 3;
+    var plateW = maxLineW + padX * 2;
+    var plateX = a.anchor === "middle" ? a.x - plateW / 2 : (a.anchor === "start" ? a.x - padX : a.x - plateW + padX);
+    var plateTop = baselines[0] - 10 - padY;
+    var plateH = (baselines[n - 1] - baselines[0]) + 14 + padY * 2;
+    return (
+      '<rect x="' + plateX + '" y="' + plateTop + '" width="' + plateW + '" height="' + plateH + '" rx="4" fill="var(--paper)" fill-opacity="0.82"/>' +
+      '<text text-anchor="' + a.anchor + '" font-family="var(--font-body)" font-size="12" fill="var(--text)">' + tspans + "</text>"
+    );
+  }
+
   function wrapLines(text, maxChars) {
     var words = String(text).split(/\s+/);
     var lines = [];
@@ -1320,10 +1542,11 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     var body = "";
 
     if (el.type === "pool") {
+      var poolStripW = poolHeaderStripWidth(el);
       body =
         '<rect class="pool-body-fill" x="0" y="0" width="' + el.w + '" height="' + el.h + '" rx="4" fill="var(--pool-fill)" stroke="' + stroke + '" stroke-width="' + strokeWidth + '"/>' +
-        '<rect class="pool-header-strip" x="0" y="0" width="34" height="' + el.h + '" fill="var(--ink)" />' +
-        '<text class="pool-header-label" x="17" y="' + el.h / 2 + '" fill="var(--paper)" font-family="var(--font-mono)" font-size="13" text-anchor="middle" transform="rotate(-90 17 ' + el.h / 2 + ')">' + escapeXML(el.label) + "</text>";
+        '<rect class="pool-header-strip" x="0" y="0" width="' + poolStripW + '" height="' + el.h + '" fill="var(--ink)" />' +
+        poolHeaderLabelSVG(el, poolStripW);
       if (isSelected) {
         body += '<rect class="resize-handle" data-id="' + el.id + '" x="' + (el.w - 14) + '" y="' + (el.h - 14) + '" width="14" height="14" rx="3"/>';
       }
@@ -1377,6 +1600,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
           return '<tspan x="' + (el.w / 2) + '" y="' + (ty + i * lh) + '">' + escapeXML(ln) + "</tspan>";
         }).join("");
         labelSVG = '<text text-anchor="middle" font-family="var(--font-body)" font-size="12.5" fill="var(--text)">' + labelSVG + "</text>";
+      } else if (el.type === "gatewayExclusive" || el.type === "gatewayParallel") {
+        labelSVG = gatewayLabelSVG(el);
       } else {
         var lines2 = wrapLines(el.label, 12);
         var by = el.h + 16;
@@ -1439,9 +1664,9 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       var boxW = Math.max(26, maxLineW + 14);
       var lh = 14;
       var boxH = lines.length * lh + 8;
-      var segIdx = Math.floor((pts.length - 1) / 2);
-      var mx = (pts[segIdx].x + pts[segIdx + 1].x) / 2;
-      var my = (pts[segIdx].y + pts[segIdx + 1].y) / 2;
+      var labelT = flow.labelPos === "start" ? 0.16 : flow.labelPos === "end" ? 0.84 : 0.5;
+      var labelPoint = pointAlongPath(pts, labelT);
+      var mx = labelPoint.x, my = labelPoint.y;
       var rectX = mx - boxW / 2;
       var rectY = my - boxH / 2;
       labelSVG =
@@ -1490,10 +1715,23 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     );
   }
 
+  // Grows the canvas to the right/down as content approaches its edges,
+  // instead of hard-capping the diagram at a fixed size.
+  function recomputeCanvasSize(elements) {
+    var maxX = 0, maxY = 0;
+    elements.forEach(function (el) {
+      maxX = Math.max(maxX, el.x + el.w);
+      maxY = Math.max(maxY, el.y + el.h);
+    });
+    CANVAS_W = Math.max(BASE_CANVAS_W, maxX + CANVAS_GROW_PADDING);
+    CANVAS_H = Math.max(BASE_CANVAS_H, maxY + CANVAS_GROW_PADDING);
+  }
+
   function renderCanvas() {
     hideNoteTooltip();
     var view = currentView();
     if (!view) return;
+    recomputeCanvasSize(view.elements);
     var pools = view.elements.filter(function (e) { return e.type === "pool"; });
     var others = view.elements.filter(function (e) { return e.type !== "pool"; });
 
@@ -1521,6 +1759,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
 
     els.svg.innerHTML = svgParts.join("");
     els.svg.setAttribute("viewBox", "0 0 " + CANVAS_W + " " + CANVAS_H);
+    els.svg.setAttribute("width", CANVAS_W * state.zoom);
+    els.svg.setAttribute("height", CANVAS_H * state.zoom);
     attachCanvasHandlers();
   }
 
@@ -1633,7 +1873,7 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     var pos = svgPoint(e);
     var horiz = segmentDragState.horiz;
     var newCoord = horiz ? pos.y : pos.x;
-    newCoord = Math.max(0, Math.min(horiz ? CANVAS_H : CANVAS_W, newCoord));
+    newCoord = Math.max(0, Math.min(MAX_COORD, newCoord));
 
     var full = flowFullPoints(flow);
     var i = segmentDragState.segIndex;
@@ -1717,8 +1957,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     if (!dragState.moved) return;
     var el = elementById(dragState.id);
     if (!el) return;
-    var rawX = Math.max(0, Math.min(CANVAS_W - el.w, dragState.origX + dx));
-    var rawY = Math.max(0, Math.min(CANVAS_H - el.h, dragState.origY + dy));
+    var rawX = Math.max(0, Math.min(MAX_COORD - el.w, dragState.origX + dx));
+    var rawY = Math.max(0, Math.min(MAX_COORD - el.h, dragState.origY + dy));
     var snap = computeSnapMove(el.id, { x: rawX, y: rawY, w: el.w, h: el.h }, currentView().elements);
     el.x = snap.x !== null ? snap.x : rawX;
     el.y = snap.y !== null ? snap.y : rawY;
@@ -1756,8 +1996,8 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     var dh = pos.y - resizeState.startY;
     var el = elementById(resizeState.id);
     if (!el) return;
-    var newW = Math.max(MIN_POOL_W, Math.min(CANVAS_W - el.x, resizeState.origW + dw));
-    var newH = Math.max(MIN_POOL_H, Math.min(CANVAS_H - el.y, resizeState.origH + dh));
+    var newW = Math.max(MIN_POOL_W, Math.min(MAX_COORD - el.x, resizeState.origW + dw));
+    var newH = Math.max(MIN_POOL_H, Math.min(MAX_COORD - el.y, resizeState.origH + dh));
     var snap = computeSnapResize(el.id, el.x + newW, el.y + newH, el.x, el.y, currentView().elements);
     el.w = snap.w !== null ? Math.max(MIN_POOL_W, snap.w) : newW;
     el.h = snap.h !== null ? Math.max(MIN_POOL_H, snap.h) : newH;
@@ -1823,15 +2063,31 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       if (el.type === "pool") {
         extra = '<p class="modal-text">Arraste o canto inferior direito da raia no diagrama para expandi-la.</p>';
       }
+      if (el.type === "gatewayExclusive" || el.type === "gatewayParallel") {
+        var curPos = el.labelPos || "S";
+        var compassLayout = ["NW", "N", "NE", "W", "", "E", "SW", "S", "SE"];
+        var compassArrows = { NW: "↖", N: "↑", NE: "↗", W: "←", E: "→", SW: "↙", S: "↓", SE: "↘" };
+        extra +=
+          '<label class="field-label">Posição do rótulo</label>' +
+          '<div class="compass-grid">' +
+          compassLayout.map(function (p) {
+            if (!p) return '<span class="compass-center"></span>';
+            return '<button type="button" class="compass-btn' + (p === curPos ? " active" : "") + '" data-pos="' + p + '" title="' + p + '">' + compassArrows[p] + "</button>";
+          }).join("") +
+          "</div>";
+      }
       panel.innerHTML =
         '<h4 class="insp-title">Elemento selecionado</h4>' +
         '<label class="field-label">Rótulo</label>' +
-        '<input type="text" id="inspLabel" class="text-input" value="' + escapeXML(el.label) + '" maxlength="80"/>' +
+        '<textarea id="inspLabel" class="text-input auto-grow" rows="1" maxlength="' + ((el.type === "task" || el.type === "subprocess") ? 120 : 80) + '">' + escapeXML(el.label) + "</textarea>" +
         extra +
         '<button class="btn btn-danger btn-block" id="inspDelete">Excluir elemento</button>';
-      document.getElementById("inspLabel").addEventListener("input", function (e2) {
+      var inspLabelEl = document.getElementById("inspLabel");
+      autoGrowTextarea(inspLabelEl);
+      inspLabelEl.addEventListener("input", function (e2) {
         el.label = e2.target.value;
         if (el.type === "task" || el.type === "subprocess") recomputeBoxSize(el);
+        autoGrowTextarea(e2.target);
         renderCanvas();
         scheduleAutoSave();
       });
@@ -1845,6 +2101,16 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       }
       if (el.type === "subprocess") {
         document.getElementById("inspOpenSub").addEventListener("click", function () { enterSubprocess(el.id); });
+      }
+      if (el.type === "gatewayExclusive" || el.type === "gatewayParallel") {
+        Array.prototype.forEach.call(panel.querySelectorAll(".compass-btn"), function (btn) {
+          btn.addEventListener("click", function () {
+            el.labelPos = btn.getAttribute("data-pos");
+            renderCanvas();
+            renderInspector();
+            scheduleAutoSave();
+          });
+        });
       }
       document.getElementById("inspDelete").addEventListener("click", function () {
         currentView().elements = currentView().elements.filter(function (x) { return x.id !== el.id; });
@@ -1862,17 +2128,35 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     } else if (state.selectedFlowId) {
       var flow = currentView().flows.find(function (f) { return f.id === state.selectedFlowId; });
       var hasPoints = flow && flow.points && flow.points.length;
+      var curLabelPos = (flow && flow.labelPos) || "middle";
       panel.innerHTML =
         '<h4 class="insp-title">Fluxo selecionado</h4>' +
         '<label class="field-label">Rótulo (opcional)</label>' +
-        '<input type="text" id="inspFlowLabel" class="text-input" placeholder="Ex.: Sim / Não" value="' + escapeXML((flow && flow.label) || "") + '" maxlength="60"/>' +
+        '<textarea id="inspFlowLabel" class="text-input auto-grow" rows="1" placeholder="Ex.: Sim / Não" maxlength="60">' + escapeXML((flow && flow.label) || "") + "</textarea>" +
+        '<label class="field-label">Posição do rótulo</label>' +
+        '<div class="seg-group">' +
+        '<button type="button" class="seg-btn' + (curLabelPos === "start" ? " active" : "") + '" data-labelpos="start">Início</button>' +
+        '<button type="button" class="seg-btn' + (curLabelPos === "middle" ? " active" : "") + '" data-labelpos="middle">Meio</button>' +
+        '<button type="button" class="seg-btn' + (curLabelPos === "end" ? " active" : "") + '" data-labelpos="end">Fim</button>' +
+        "</div>" +
         '<p class="modal-text">Arraste os quadradinhos ao longo da seta para criar ou desfazer curvas em ângulo reto (só na horizontal ou vertical). Clique nos pontinhos coloridos nas bordas dos elementos para trocar de onde a seta sai ou onde ela chega.' +
         (hasPoints ? " (" + flow.points.length + " curva(s) neste fluxo)" : "") + '</p>' +
         '<button class="btn btn-danger btn-block" id="inspDeleteFlow">Excluir fluxo</button>';
-      document.getElementById("inspFlowLabel").addEventListener("input", function (e2) {
+      var inspFlowLabelEl = document.getElementById("inspFlowLabel");
+      autoGrowTextarea(inspFlowLabelEl);
+      inspFlowLabelEl.addEventListener("input", function (e2) {
         if (flow) flow.label = e2.target.value;
+        autoGrowTextarea(e2.target);
         renderCanvas();
         scheduleAutoSave();
+      });
+      Array.prototype.forEach.call(panel.querySelectorAll(".seg-btn"), function (btn) {
+        btn.addEventListener("click", function () {
+          if (flow) flow.labelPos = btn.getAttribute("data-labelpos");
+          renderCanvas();
+          renderInspector();
+          scheduleAutoSave();
+        });
       });
       document.getElementById("inspDeleteFlow").addEventListener("click", function () {
         currentView().flows = currentView().flows.filter(function (f) { return f.id !== state.selectedFlowId; });
@@ -1894,6 +2178,29 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     els.btnSelect.classList.toggle("active", state.tool === "select");
     els.btnConnect.classList.toggle("active", state.tool === "connect");
     els.svg.classList.toggle("connect-mode", state.tool === "connect");
+  }
+
+  var ZOOM_LEVELS = [0.5, 0.65, 0.8, 1, 1.25, 1.5, 2];
+
+  function setZoom(z) {
+    state.zoom = Math.max(0.4, Math.min(2.5, Math.round(z * 100) / 100));
+    renderCanvas();
+    updateZoomLabel();
+  }
+
+  function zoomIn() {
+    var next = ZOOM_LEVELS.filter(function (z) { return z > state.zoom + 0.001; })[0];
+    setZoom(next !== undefined ? next : Math.min(2.5, state.zoom + 0.25));
+  }
+
+  function zoomOut() {
+    var candidates = ZOOM_LEVELS.filter(function (z) { return z < state.zoom - 0.001; });
+    var next = candidates.length ? candidates[candidates.length - 1] : undefined;
+    setZoom(next !== undefined ? next : Math.max(0.4, state.zoom - 0.25));
+  }
+
+  function updateZoomLabel() {
+    if (els.zoomLabel) els.zoomLabel.textContent = Math.round(state.zoom * 100) + "%";
   }
 
   var autoSaveTimer = null;
@@ -2340,6 +2647,9 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
     els.procNameInput = document.getElementById("procNameInput");
     els.btnSelect = document.getElementById("btnSelect");
     els.btnConnect = document.getElementById("btnConnect");
+    els.zoomLabel = document.getElementById("zoomLabel");
+    els.btnZoomIn = document.getElementById("btnZoomIn");
+    els.btnZoomOut = document.getElementById("btnZoomOut");
     els.breadcrumbBar = document.getElementById("breadcrumbBar");
     els.autoSaveStatus = document.getElementById("autoSaveStatus");
     els.noteTooltip = document.getElementById("noteTooltip");
@@ -2373,6 +2683,9 @@ textarea.text-input { resize: vertical; min-height: 60px; line-height: 1.4; }
       updateToolButtons();
       renderCanvas();
     });
+    els.btnZoomIn.addEventListener("click", zoomIn);
+    els.btnZoomOut.addEventListener("click", zoomOut);
+    els.zoomLabel.addEventListener("click", function () { setZoom(1); });
     els.procNameInput.addEventListener("input", function () {
       var view = currentView();
       if (!view.ownerEl) state.current.name = els.procNameInput.value;
