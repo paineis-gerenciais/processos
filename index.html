@@ -1387,6 +1387,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
         '<p class="pc-meta">' + p.elements.length + " elementos · atualizado em " + formatDate(p.updatedAt) + "</p>" +
         '<div class="pc-actions">' +
         '<button class="btn btn-ghost" data-act="move" data-id="' + p.id + '">Mover</button>' +
+        '<button class="btn btn-ghost" data-act="duplicate" data-id="' + p.id + '">Duplicar</button>' +
         '<button class="btn btn-ghost" data-act="delete" data-id="' + p.id + '">Excluir</button>' +
         '<button class="btn btn-primary" data-act="open" data-id="' + p.id + '">Abrir</button>' +
         "</div>";
@@ -1401,6 +1402,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     var act = btn.getAttribute("data-act");
     if (act === "open") openProcess(id);
     else if (act === "delete") confirmDeleteProcess(id);
+    else if (act === "duplicate") confirmDuplicateProcess(id);
     else if (act === "move") openMoveProcessModal(id);
     else if (act === "open-folder") navigateToFolder(id);
     else if (act === "rename-folder") openRenameFolderModal(id);
@@ -1425,6 +1427,31 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
       closeModal();
       renderDashboard();
       showToast("Processo excluído.");
+    };
+  }
+
+  function confirmDuplicateProcess(id) {
+    var p = state.processes.find(function (x) { return x.id === id; });
+    if (!p) return;
+    openModal(
+      '<h3 class="modal-title">Duplicar processo</h3>' +
+      '<p class="modal-text">Criar uma cópia de "' + escapeXML(p.name) + '"? A cópia entra como um processo separado, com o mesmo desenho.</p>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelDuplicate">Cancelar</button>' +
+      '<button class="btn btn-primary" id="confirmDuplicate">Duplicar</button>' +
+      "</div>"
+    );
+    document.getElementById("cancelDuplicate").onclick = closeModal;
+    document.getElementById("confirmDuplicate").onclick = function () {
+      var copy = JSON.parse(JSON.stringify(p));
+      copy.id = uid("proc");
+      copy.name = p.name + " (cópia)";
+      copy.updatedAt = Date.now();
+      state.processes.push(copy);
+      persistProcessSave(copy);
+      closeModal();
+      renderDashboard();
+      showToast("Processo duplicado.");
     };
   }
 
