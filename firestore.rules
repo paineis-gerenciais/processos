@@ -4,20 +4,29 @@ rules_version = '2';
 //
 // O app não tem login (por desenho: qualquer pessoa do grupo com o link
 // pode abrir e editar). Isso significa que estas regras liberam leitura e
-// escrita da coleção "processes" para qualquer pessoa que tenha a
-// configuração do seu projeto Firebase (as chaves que ficam dentro do
-// index.html). Use isto apenas para dados não sensíveis, dentro de um
+// escrita das coleções "processes" e "folders" para qualquer pessoa que
+// tenha a configuração do seu projeto Firebase (as chaves que ficam dentro
+// do index.html). Use isto apenas para dados não sensíveis, dentro de um
 // grupo de confiança — não é adequado para dados privados ou sigilosos.
 //
 // Como aplicar: Firebase Console > Firestore Database > Regras > cole este
 // conteúdo > Publicar. (Ou via CLI: `firebase deploy --only firestore:rules`,
 // veja o README.md.)
+//
+// Se você já tinha publicado uma versão anterior destas regras (sem a
+// coleção "folders"), publique esta de novo — senão a criação de pastas
+// fica bloqueada pelo Firestore com erro de permissão.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
     // Cada processo é salvo como um documento na coleção "processes".
     match /processes/{processId} {
+      allow read, write: if true;
+    }
+
+    // Cada pasta usada para organizar os processos no painel inicial.
+    match /folders/{folderId} {
       allow read, write: if true;
     }
 

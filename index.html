@@ -104,7 +104,19 @@ html, body {
 .legend .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
 .dashboard-main { flex: 1; overflow-y: auto; padding: 40px 48px; }
+.folder-breadcrumb {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  min-height: 18px;
+}
+.folder-breadcrumb:empty { margin-bottom: 0; min-height: 0; }
+.folder-breadcrumb .sep { margin: 0 8px; color: var(--border); }
+.folder-breadcrumb .crumb-link { background: none; border: none; color: var(--accent); cursor: pointer; font-weight: 600; font-size: 12.5px; padding: 0; font-family: var(--font-body); }
+.folder-breadcrumb .crumb-link:hover { text-decoration: underline; }
+.folder-breadcrumb .crumb-current { font-weight: 600; color: var(--text); }
 .dashboard-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+.dashboard-title-row { display: flex; align-items: center; gap: 12px; }
 .dashboard-header h1 { font-family: var(--font-display); font-size: 26px; margin: 0; letter-spacing: -0.01em; }
 .dashboard-sub { color: var(--text-muted); font-size: 14px; margin: 0 0 28px; }
 
@@ -135,11 +147,50 @@ html, body {
 }
 
 .pc-title { font-family: var(--font-display); font-size: 16px; margin: 4px 0 0; padding-right: 70px; line-height: 1.3; }
+.folder-card .pc-title { padding-right: 0; }
+
+.folder-card { border-color: var(--border); }
+.folder-icon {
+  width: 30px; height: 24px;
+  position: relative;
+  flex-shrink: 0;
+}
+.folder-icon::before {
+  content: "";
+  position: absolute; left: 0; top: 0;
+  width: 14px; height: 6px;
+  background: var(--flow-gateway);
+  border-radius: 2px 2px 0 0;
+}
+.folder-icon::after {
+  content: "";
+  position: absolute; left: 0; top: 4px;
+  width: 30px; height: 20px;
+  background: var(--flow-gateway);
+  opacity: 0.85;
+  border-radius: 3px;
+}
+
+.move-options { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; max-height: 260px; overflow-y: auto; }
+.move-option {
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.move-option:hover { background: var(--paper); }
+.move-option.active { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
 
 .badge { align-self: flex-start; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; letter-spacing: 0.02em; background: var(--accent-soft); color: var(--accent-dark); }
 
 .pc-meta { font-size: 12.5px; color: var(--text-muted); margin: 0; }
-.pc-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.pc-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.pc-actions .btn { padding: 6px 10px; font-size: 12px; }
 
 .empty-state { padding: 60px 20px; text-align: center; color: var(--text-muted); }
 .empty-title { font-family: var(--font-display); font-size: 18px; color: var(--text); margin: 0 0 6px; }
@@ -529,17 +580,22 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     </aside>
 
     <main class="dashboard-main">
+      <div class="folder-breadcrumb" id="folderBreadcrumb"></div>
       <div class="dashboard-header">
-        <h1>Seus processos</h1>
+        <div class="dashboard-title-row">
+          <button class="btn btn-ghost hidden" id="btnDashboardBack">← Voltar</button>
+          <h1 id="dashboardTitle">Seus processos</h1>
+        </div>
         <div style="display:flex; gap:10px;">
           <input type="file" id="importFileInput" accept="application/json" style="display:none" />
           <button class="btn btn-ghost" id="btnImportData">Importar dados</button>
           <button class="btn btn-ghost" id="btnExportData">Exportar dados</button>
           <button class="btn btn-ghost" id="btnExportAllPdf">Exportar tudo (PDF)</button>
+          <button class="btn btn-ghost" id="btnNewFolder">+ Nova pasta</button>
           <button class="btn btn-primary" id="btnNewProcess">+ Novo processo</button>
         </div>
       </div>
-      <p class="dashboard-sub">Desenhe, salve e exporte fluxogramas em notação BPMN — com raias, subprocessos detalháveis e gateways. Já preenchemos um exemplo para você testar.</p>
+      <p class="dashboard-sub" id="dashboardSub">Desenhe, salve e exporte fluxogramas em notação BPMN — com raias, subprocessos detalháveis e gateways. Já preenchemos um exemplo para você testar.</p>
       <div class="process-grid" id="processList"></div>
     </main>
   </div>
@@ -596,6 +652,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
   "use strict";
 
   var STORAGE_KEY = "processflow:processes";
+  var FOLDERS_STORAGE_KEY = "processflow:folders";
   var BASE_CANVAS_W = 1800;
   var BASE_CANVAS_H = 1100;
   var CANVAS_GROW_PADDING = 400; // breathing room kept beyond the furthest element
@@ -640,6 +697,8 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
 
   var state = {
     processes: [],
+    folders: [],
+    currentFolderId: null,
     current: null,
     viewStack: [], // [{ elements, flows, ownerEl }]
     tool: "select",
@@ -1005,6 +1064,12 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     } catch (e) { /* best effort only */ }
   }
 
+  function persistFoldersLocal() {
+    try {
+      localStorage.setItem(FOLDERS_STORAGE_KEY, JSON.stringify(state.folders));
+    } catch (e) { /* best effort only */ }
+  }
+
   function loadLocalFallback() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
@@ -1018,6 +1083,17 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     } catch (e) { /* fall through to seed */ }
     state.processes = seedProcesses();
     persistAllLocal();
+  }
+
+  function loadFoldersLocalFallback() {
+    try {
+      var raw = localStorage.getItem(FOLDERS_STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) { state.folders = parsed; return; }
+      }
+    } catch (e) { /* fall through */ }
+    state.folders = [];
   }
 
   // Saves/updates one process. In Firestore mode this writes just that one
@@ -1045,6 +1121,28 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     return Promise.resolve();
   }
 
+  function persistFolderSave(folder) {
+    if (useFirestore) {
+      return db.collection("folders").doc(folder.id).set(folder).catch(function (e) {
+        console.error("Firestore save failed", e);
+        showToast("Falha ao salvar a pasta no Firestore.");
+      });
+    }
+    persistFoldersLocal();
+    return Promise.resolve();
+  }
+
+  function persistFolderDelete(id) {
+    if (useFirestore) {
+      return db.collection("folders").doc(id).delete().catch(function (e) {
+        console.error("Firestore delete failed", e);
+        showToast("Falha ao excluir a pasta no Firestore.");
+      });
+    }
+    persistFoldersLocal();
+    return Promise.resolve();
+  }
+
   function initStorageAndLoad() {
     initFirebase();
     if (useFirestore) {
@@ -1060,10 +1158,20 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
         showToast("Sem conexão com o Firestore — usando dados locais deste navegador.");
         useFirestore = false;
         loadLocalFallback();
+        loadFoldersLocalFallback();
         renderDashboard();
+      });
+      db.collection("folders").onSnapshot(function (snapshot) {
+        var docs = [];
+        snapshot.forEach(function (doc) { docs.push(doc.data()); });
+        state.folders = docs;
+        if (!state.current) renderDashboard();
+      }, function (err) {
+        console.error("Firestore folders listener error", err);
       });
     } else {
       loadLocalFallback();
+      loadFoldersLocalFallback();
       renderDashboard();
     }
   }
@@ -1203,20 +1311,73 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     renderDashboard();
   }
 
+  function navigateToFolder(id) {
+    state.currentFolderId = id;
+    renderDashboard();
+  }
+
+  function renderFolderBreadcrumb() {
+    if (els.btnDashboardBack) els.btnDashboardBack.classList.toggle("hidden", !state.currentFolderId);
+    if (!els.folderBreadcrumb) return;
+    if (!state.currentFolderId) {
+      els.folderBreadcrumb.innerHTML = "";
+      return;
+    }
+    var folder = state.folders.find(function (f) { return f.id === state.currentFolderId; });
+    var name = folder ? folder.name : "Pasta";
+    els.folderBreadcrumb.innerHTML =
+      '<button class="crumb-link" id="crumbAllProcesses">Todos os processos</button>' +
+      '<span class="sep">›</span>' +
+      '<span class="crumb-current">' + escapeXML(name) + "</span>";
+    document.getElementById("crumbAllProcesses").addEventListener("click", function () { navigateToFolder(null); });
+  }
+
   function renderDashboard() {
+    renderFolderBreadcrumb();
+    var currentFolder = state.currentFolderId ? state.folders.find(function (f) { return f.id === state.currentFolderId; }) : null;
+    if (state.currentFolderId && !currentFolder) { state.currentFolderId = null; renderFolderBreadcrumb(); }
+
+    if (els.dashboardTitle) els.dashboardTitle.textContent = currentFolder ? currentFolder.name : "Seus processos";
+    if (els.dashboardSub) {
+      els.dashboardSub.textContent = currentFolder
+        ? "Processos guardados nesta pasta."
+        : "Desenhe, salve e exporte fluxogramas em notação BPMN — com raias, subprocessos detalháveis e gateways.";
+    }
+
     var list = els.processList;
     list.innerHTML = "";
-    if (state.processes.length === 0) {
+
+    var visibleFolders = state.currentFolderId ? [] : state.folders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
+    var visibleProcesses = state.processes.filter(function (p) { return (p.folderId || null) === state.currentFolderId; });
+
+    if (!visibleFolders.length && !visibleProcesses.length) {
       list.innerHTML =
         '<div class="empty-state">' +
-        '<p class="empty-title">Nenhum processo ainda</p>' +
-        '<p class="empty-sub">Crie o primeiro processo do grupo para começar a desenhar o fluxo.</p>' +
+        '<p class="empty-title">' + (currentFolder ? "Pasta vazia" : "Nenhum processo ainda") + '</p>' +
+        '<p class="empty-sub">' + (currentFolder ? "Mova um processo para cá ou crie um novo já dentro desta pasta." : "Crie o primeiro processo do grupo para começar a desenhar o fluxo.") + '</p>' +
         '<button class="btn btn-primary" id="btnNewProcessEmpty" style="margin-top:16px;">+ Novo processo</button>' +
         "</div>";
       document.getElementById("btnNewProcessEmpty").addEventListener("click", openNewProcessModal);
       return;
     }
-    var sorted = state.processes.slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+
+    visibleFolders.forEach(function (f) {
+      var count = state.processes.filter(function (p) { return p.folderId === f.id; }).length;
+      var card = document.createElement("div");
+      card.className = "process-card folder-card";
+      card.innerHTML =
+        '<div class="folder-icon" aria-hidden="true"></div>' +
+        '<h3 class="pc-title">' + escapeXML(f.name) + "</h3>" +
+        '<p class="pc-meta">' + count + (count === 1 ? " processo" : " processos") + "</p>" +
+        '<div class="pc-actions">' +
+        '<button class="btn btn-ghost" data-act="rename-folder" data-id="' + f.id + '">Renomear</button>' +
+        '<button class="btn btn-ghost" data-act="delete-folder" data-id="' + f.id + '">Excluir</button>' +
+        '<button class="btn btn-primary" data-act="open-folder" data-id="' + f.id + '">Abrir</button>' +
+        "</div>";
+      list.appendChild(card);
+    });
+
+    var sorted = visibleProcesses.slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; });
     sorted.forEach(function (p) {
       var card = document.createElement("div");
       card.className = "process-card";
@@ -1225,6 +1386,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
         '<h3 class="pc-title">' + escapeXML(p.name) + "</h3>" +
         '<p class="pc-meta">' + p.elements.length + " elementos · atualizado em " + formatDate(p.updatedAt) + "</p>" +
         '<div class="pc-actions">' +
+        '<button class="btn btn-ghost" data-act="move" data-id="' + p.id + '">Mover</button>' +
         '<button class="btn btn-ghost" data-act="delete" data-id="' + p.id + '">Excluir</button>' +
         '<button class="btn btn-primary" data-act="open" data-id="' + p.id + '">Abrir</button>' +
         "</div>";
@@ -1236,8 +1398,13 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     var btn = e.target.closest("button[data-act]");
     if (!btn) return;
     var id = btn.getAttribute("data-id");
-    if (btn.getAttribute("data-act") === "open") openProcess(id);
-    else if (btn.getAttribute("data-act") === "delete") confirmDeleteProcess(id);
+    var act = btn.getAttribute("data-act");
+    if (act === "open") openProcess(id);
+    else if (act === "delete") confirmDeleteProcess(id);
+    else if (act === "move") openMoveProcessModal(id);
+    else if (act === "open-folder") navigateToFolder(id);
+    else if (act === "rename-folder") openRenameFolderModal(id);
+    else if (act === "delete-folder") confirmDeleteFolder(id);
   }
 
   function confirmDeleteProcess(id) {
@@ -1276,12 +1443,122 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     document.getElementById("cancelNew").onclick = closeModal;
     document.getElementById("confirmNew").onclick = function () {
       var name = nameInput.value.trim() || "Processo sem título";
-      var proc = { id: uid("proc"), name: name, elements: [], flows: [], updatedAt: Date.now() };
+      var proc = { id: uid("proc"), name: name, elements: [], flows: [], folderId: state.currentFolderId || null, updatedAt: Date.now() };
       state.processes.push(proc);
       persistProcessSave(proc);
       closeModal();
       openProcess(proc.id);
     };
+  }
+
+  /* ---------------- Folders ---------------- */
+
+  function openNewFolderModal() {
+    openModal(
+      '<h3 class="modal-title">Nova pasta</h3>' +
+      '<label class="field-label">Nome da pasta</label>' +
+      '<input type="text" id="newFolderName" class="text-input" placeholder="Ex.: Financeiro" maxlength="60" />' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelNewFolder">Cancelar</button>' +
+      '<button class="btn btn-primary" id="confirmNewFolder">Criar pasta</button>' +
+      "</div>"
+    );
+    var nameInput = document.getElementById("newFolderName");
+    nameInput.focus();
+    document.getElementById("cancelNewFolder").onclick = closeModal;
+    document.getElementById("confirmNewFolder").onclick = function () {
+      var name = nameInput.value.trim() || "Pasta sem título";
+      var folder = { id: uid("folder"), name: name, createdAt: Date.now() };
+      state.folders.push(folder);
+      persistFolderSave(folder);
+      closeModal();
+      renderDashboard();
+      showToast("Pasta criada.");
+    };
+  }
+
+  function openRenameFolderModal(id) {
+    var folder = state.folders.find(function (f) { return f.id === id; });
+    if (!folder) return;
+    openModal(
+      '<h3 class="modal-title">Renomear pasta</h3>' +
+      '<label class="field-label">Nome da pasta</label>' +
+      '<input type="text" id="renameFolderName" class="text-input" value="' + escapeXML(folder.name) + '" maxlength="60" />' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelRenameFolder">Cancelar</button>' +
+      '<button class="btn btn-primary" id="confirmRenameFolder">Salvar</button>' +
+      "</div>"
+    );
+    var nameInput = document.getElementById("renameFolderName");
+    nameInput.focus();
+    nameInput.select();
+    document.getElementById("cancelRenameFolder").onclick = closeModal;
+    document.getElementById("confirmRenameFolder").onclick = function () {
+      folder.name = nameInput.value.trim() || folder.name;
+      persistFolderSave(folder);
+      closeModal();
+      renderDashboard();
+    };
+  }
+
+  function confirmDeleteFolder(id) {
+    var folder = state.folders.find(function (f) { return f.id === id; });
+    if (!folder) return;
+    var count = state.processes.filter(function (p) { return p.folderId === id; }).length;
+    openModal(
+      '<h3 class="modal-title">Excluir pasta</h3>' +
+      '<p class="modal-text">Tem certeza que deseja excluir "' + escapeXML(folder.name) + '"?' +
+      (count ? " Os " + count + " processo(s) dentro dela voltam para a lista principal, sem serem apagados." : "") + '</p>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelDeleteFolder">Cancelar</button>' +
+      '<button class="btn btn-danger" id="confirmDeleteFolder">Excluir</button>' +
+      "</div>"
+    );
+    document.getElementById("cancelDeleteFolder").onclick = closeModal;
+    document.getElementById("confirmDeleteFolder").onclick = function () {
+      state.processes.forEach(function (p) {
+        if (p.folderId === id) {
+          p.folderId = null;
+          persistProcessSave(p);
+        }
+      });
+      state.folders = state.folders.filter(function (f) { return f.id !== id; });
+      persistFolderDelete(id);
+      if (state.currentFolderId === id) state.currentFolderId = null;
+      closeModal();
+      renderDashboard();
+      showToast("Pasta excluída.");
+    };
+  }
+
+  function openMoveProcessModal(id) {
+    var p = state.processes.find(function (x) { return x.id === id; });
+    if (!p) return;
+    var curFolderId = p.folderId || null;
+    var options =
+      '<button type="button" class="move-option' + (!curFolderId ? " active" : "") + '" data-folder="">Sem pasta</button>' +
+      state.folders.slice().sort(function (a, b) { return a.name.localeCompare(b.name); }).map(function (f) {
+        return '<button type="button" class="move-option' + (curFolderId === f.id ? " active" : "") + '" data-folder="' + f.id + '">' + escapeXML(f.name) + "</button>";
+      }).join("");
+    openModal(
+      '<h3 class="modal-title">Mover processo</h3>' +
+      '<p class="modal-text">Escolha a pasta para "' + escapeXML(p.name) + '".</p>' +
+      '<div class="move-options">' + options + "</div>" +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-ghost" id="cancelMove">Cancelar</button>' +
+      "</div>"
+    );
+    document.getElementById("cancelMove").onclick = closeModal;
+    Array.prototype.forEach.call(document.querySelectorAll(".move-option"), function (btn) {
+      btn.addEventListener("click", function () {
+        p.folderId = btn.getAttribute("data-folder") || null;
+        p.updatedAt = Date.now();
+        persistProcessSave(p);
+        closeModal();
+        renderDashboard();
+        showToast("Processo movido.");
+      });
+    });
   }
 
   /* ---------------- Editor / navigation ---------------- */
@@ -2273,6 +2550,72 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
 
   /* ---------------- PDF export: bounding box + offscreen snapshot ---------------- */
 
+  function pdfRectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  // A tile is worth its own page only if some element (including a lane's
+  // own rectangle) actually falls inside it — otherwise it's blank space
+  // that happened to be inside the bounding box and gets dropped.
+  function tileHasContent(rect, elements) {
+    return elements.some(function (el) { return pdfRectsOverlap(rect, { x: el.x, y: el.y, w: el.w, h: el.h }); });
+  }
+
+  // Finds page-break coordinates along one axis that fall in a gap between
+  // shapes (with a small margin) instead of slicing through the middle of a
+  // task, gateway, or event — so no shape is ever split across two pages.
+  // Lanes are excluded from this check since a large lane is expected to
+  // span multiple pages.
+  function findAxisBreaks(elements, start, size, chunk, axisIsX) {
+    var end = start + size;
+    if (size <= chunk + 0.5) return [end];
+    var margin = 8;
+    var intervals = elements
+      .filter(function (el) { return el.type !== "pool"; })
+      .map(function (el) {
+        return axisIsX ? [el.x - margin, el.x + el.w + margin] : [el.y - margin, el.y + el.h + margin];
+      })
+      .sort(function (a, b) { return a[0] - b[0]; });
+
+    var merged = [];
+    intervals.forEach(function (iv) {
+      var last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1]);
+      else merged.push(iv.slice());
+    });
+
+    var gaps = [];
+    var prevEnd = start;
+    merged.forEach(function (iv) {
+      if (iv[0] > prevEnd) gaps.push([prevEnd, Math.min(iv[0], end)]);
+      prevEnd = Math.max(prevEnd, iv[1]);
+    });
+    if (prevEnd < end) gaps.push([prevEnd, end]);
+
+    var breaks = [];
+    var cursor = start;
+    var guard = 0;
+    while (cursor < end - 0.5 && guard < 50) {
+      guard++;
+      var ideal = cursor + chunk;
+      if (ideal >= end - 1) { breaks.push(end); break; }
+      var minLen = chunk * 0.4, maxLen = chunk * 1.6;
+      var best = null, bestDist = Infinity;
+      gaps.forEach(function (g) {
+        var mid = (g[0] + g[1]) / 2;
+        var pageLen = mid - cursor;
+        if (pageLen < minLen || pageLen > maxLen) return;
+        var dist = Math.abs(mid - ideal);
+        if (dist < bestDist) { bestDist = dist; best = mid; }
+      });
+      var breakPos = best !== null ? best : ideal;
+      breaks.push(breakPos);
+      cursor = breakPos;
+    }
+    if (!breaks.length || breaks[breaks.length - 1] < end - 0.5) breaks.push(end);
+    return breaks;
+  }
+
   function computeContentBBox(elements) {
     if (!elements || !elements.length) return { x: 0, y: 0, w: 400, h: 260 };
     var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -2406,21 +2749,21 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
       // for retina sharpness) instead of the full pre-shrink source size —
       // rendering a diagram that gets shrunk to half size at its original
       // resolution just bloats the file with pixels nobody will see.
-      var scale = Math.min(fitScale, 1.3);
+      var scale = Math.min(fitScale, 0.8);
       var printW = bbox.w * scale, printH = bbox.h * scale;
       var canvas = makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h, printW * outRes, printH * outRes);
       pages.push({ canvas: canvas, w: printW, h: printH });
     } else {
-      var tileW = layout.contentW;
-      var tileH = layout.contentH;
-      var cols = Math.max(1, Math.ceil(bbox.w / tileW));
-      var rows = Math.max(1, Math.ceil(bbox.h / tileH));
-      for (var r = 0; r < rows; r++) {
-        for (var c = 0; c < cols; c++) {
-          var sx = bbox.x + c * tileW;
-          var sy = bbox.y + r * tileH;
-          var sw = Math.min(tileW, bbox.x + bbox.w - sx);
-          var sh = Math.min(tileH, bbox.y + bbox.h - sy);
+      var xBreaks = findAxisBreaks(elements, bbox.x, bbox.w, layout.contentW, true);
+      var yBreaks = findAxisBreaks(elements, bbox.y, bbox.h, layout.contentH, false);
+      var xStarts = [bbox.x].concat(xBreaks.slice(0, -1));
+      var yStarts = [bbox.y].concat(yBreaks.slice(0, -1));
+      for (var r = 0; r < yStarts.length; r++) {
+        for (var c = 0; c < xStarts.length; c++) {
+          var sx = xStarts[c], sy = yStarts[r];
+          var sw = xBreaks[c] - sx, sh = yBreaks[r] - sy;
+          if (sw < 1 || sh < 1) continue;
+          if (!tileHasContent({ x: sx, y: sy, w: sw, h: sh }, elements)) continue;
           pages.push({ canvas: makeCanvas(sx, sy, sw, sh, sw * outRes, sh * outRes), w: sw, h: sh });
         }
       }
@@ -2637,6 +2980,10 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     els.dashboardView = document.getElementById("dashboardView");
     els.editorView = document.getElementById("editorView");
     els.processList = document.getElementById("processList");
+    els.folderBreadcrumb = document.getElementById("folderBreadcrumb");
+    els.dashboardTitle = document.getElementById("dashboardTitle");
+    els.dashboardSub = document.getElementById("dashboardSub");
+    els.btnDashboardBack = document.getElementById("btnDashboardBack");
     els.modalOverlay = document.getElementById("modalOverlay");
     els.modalBody = document.getElementById("modalBody");
     els.toast = document.getElementById("toast");
@@ -2655,6 +3002,8 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     els.noteTooltip = document.getElementById("noteTooltip");
 
     document.getElementById("btnNewProcess").addEventListener("click", openNewProcessModal);
+    document.getElementById("btnNewFolder").addEventListener("click", openNewFolderModal);
+    els.btnDashboardBack.addEventListener("click", function () { navigateToFolder(null); });
     els.processList.addEventListener("click", onProcessListClick);
     document.getElementById("btnExportData").addEventListener("click", exportAllData);
     document.getElementById("btnExportAllPdf").addEventListener("click", exportAllProcesses);
