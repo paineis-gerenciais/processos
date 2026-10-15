@@ -2787,7 +2787,12 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
       // One page only: shrink (never enlarge past 80%) so everything fits.
       var s1 = Math.min(availW / bbox.w, availH / bbox.h, 0.8);
       var w1 = bbox.w * s1, h1 = bbox.h * s1;
-      pages.push({ canvas: makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h, w1 * outRes, h1 * outRes), w: w1, h: h1 });
+      // Raster at (at least) 2x the diagram's ORIGINAL size, not the shrunk
+      // printed size, so zooming into the PDF stays sharp. Capped to stay
+      // within browser canvas limits (Safari: ~16.7M pixels).
+      var pxW = Math.max(w1 * outRes, bbox.w * 2.5), pxH = Math.max(h1 * outRes, bbox.h * 2.5);
+      var cap = Math.min(1, 12000 / pxW, 12000 / pxH, Math.sqrt(16000000 / (pxW * pxH)));
+      pages.push({ canvas: makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h, pxW * cap, pxH * cap), w: w1, h: h1 });
     } else if (mode === "fitHeight") {
       // Full height on every page; as many pages as the width needs.
       var sH = Math.min(availH / bbox.h, 0.8);
