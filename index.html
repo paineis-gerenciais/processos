@@ -556,6 +556,9 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
   .toolbar-logo { display: none; }
 }
 
+
+.pdf-mode-row { display:flex; align-items:center; gap:10px; margin:6px 0 12px; font-size:13px; }
+.pdf-mode-row select { padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--text); font:inherit; }
 </style>
 </head>
 <body>
@@ -2593,7 +2596,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
   // task, gateway, or event — so no shape is ever split across two pages.
   // Lanes are excluded from this check since a large lane is expected to
   // span multiple pages.
-  function findAxisBreaks(elements, start, size, chunk, axisIsX) {
+  function findAxisBreaks(elements, start, size, chunk, axisIsX, maxFactor) {
     var end = start + size;
     if (size <= chunk + 0.5) return [end];
     var margin = 8;
@@ -2626,7 +2629,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
       guard++;
       var ideal = cursor + chunk;
       if (ideal >= end - 1) { breaks.push(end); break; }
-      var minLen = chunk * 0.4, maxLen = chunk * 1.6;
+      var minLen = chunk * 0.4, maxLen = chunk * (maxFactor || 1.6);
       var best = null, bestDist = Infinity;
       gaps.forEach(function (g) {
         var mid = (g[0] + g[1]) / 2;
@@ -2737,6 +2740,12 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
           canvas.height = img.naturalHeight || img.height;
           var ctx = canvas.getContext("2d");
           ctx.drawImage(img, 0, 0);
+          // The supplied logo is white (made for the old dark header): recolor
+          // every visible pixel to the dark ink tone, keeping its alpha.
+          var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          var px = imgData.data;
+          for (var i = 0; i < px.length; i += 4) { px[i] = 23; px[i + 1] = 27; px[i + 2] = 36; }
+          ctx.putImageData(imgData, 0, 0);
           var dataUrl = canvas.toDataURL("image/png");
           resolve({ dataUrl: dataUrl, width: canvas.width, height: canvas.height });
         } catch (e) {
@@ -2751,7 +2760,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
   // Renders one diagram into one or more page-sized canvases: a single page
   // (shrunk to fit) when it's small/medium, or several A4 tiles at 1:1 scale
   // when it's too large to stay legible on one page.
-  async function renderDiagramPages(elements, flows, layout) {
+  async function renderDiagramPages(elements, flows, layout, mode) {
     var snapshot = buildExportSnapshot(elements, flows);
     var bbox = snapshot.bbox;
     var img = await loadImageFromMarkup(snapshot.svgMarkup);
@@ -2759,8 +2768,11 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
 
     var outRes = 2; // raster resolution multiplier, relative to the FINAL printed size
     var fitScale = Math.min(layout.contentW / bbox.w, layout.contentH / bbox.h);
+    var availW = layout.contentW - layout.framePad * 2;
+    var availH = layout.contentH - layout.framePad * 2;
     var useSinglePage = fitScale >= 0.55;
     var pages = [];
+    mode = mode || "auto";
 
     function makeCanvas(sx, sy, sw, sh, outW, outH) {
       var canvas = document.createElement("canvas");
@@ -2771,7 +2783,25 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
       return canvas;
     }
 
-    if (useSinglePage) {
+    if (mode === "onePage" || (mode === "fitHeight" && bbox.w * Math.min(availH / bbox.h, 0.8) <= availW + 0.5)) {
+      // One page only: shrink (never enlarge past 80%) so everything fits.
+      var s1 = Math.min(availW / bbox.w, availH / bbox.h, 0.8);
+      var w1 = bbox.w * s1, h1 = bbox.h * s1;
+      pages.push({ canvas: makeCanvas(bbox.x, bbox.y, bbox.w, bbox.h, w1 * outRes, h1 * outRes), w: w1, h: h1 });
+    } else if (mode === "fitHeight") {
+      // Full height on every page; as many pages as the width needs.
+      var sH = Math.min(availH / bbox.h, 0.8);
+      var chunkW = availW / sH;
+      var xb = findAxisBreaks(elements, bbox.x, bbox.w, chunkW, true, 1.0);
+      var xs = [bbox.x].concat(xb.slice(0, -1));
+      for (var k = 0; k < xs.length; k++) {
+        var swH = xb[k] - xs[k];
+        if (swH < 1) continue;
+        if (!tileHasContent({ x: xs[k], y: bbox.y, w: swH, h: bbox.h }, elements)) continue;
+        var pw = swH * sH, ph = bbox.h * sH;
+        pages.push({ canvas: makeCanvas(xs[k], bbox.y, swH, bbox.h, pw * outRes, ph * outRes), w: pw, h: ph });
+      }
+    } else if (useSinglePage) {
       // Render straight to the size it will actually be printed at (× outRes
       // for retina sharpness) instead of the full pre-shrink source size —
       // rendering a diagram that gets shrunk to half size at its original
@@ -2798,32 +2828,37 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     return pages;
   }
 
-  async function generateExportPlan(diagrams) {
-    var layout = { PAGE_W: 1123, PAGE_H: 794, HEADER_H: 64, FOOTER_H: 38, MARGIN: 26 };
+  var pdfMode = "auto"; // auto | fitHeight | onePage
+
+  async function generateExportPlan(diagrams, mode) {
+    var layout = { PAGE_W: 1123, PAGE_H: 794, HEADER_H: 64, FOOTER_H: 38, MARGIN: 26, framePad: 10 };
     layout.contentW = layout.PAGE_W - layout.MARGIN * 2;
     layout.contentH = layout.PAGE_H - layout.HEADER_H - layout.FOOTER_H - layout.MARGIN * 2;
     var groups = [];
     for (var i = 0; i < diagrams.length; i++) {
-      var pages = await renderDiagramPages(diagrams[i].elements, diagrams[i].flows, layout);
+      var pages = await renderDiagramPages(diagrams[i].elements, diagrams[i].flows, layout, mode);
       groups.push({ title: diagrams[i].title, pages: pages });
     }
     return { groups: groups, layout: layout };
   }
 
   function drawPdfHeader(pdf, layout, title, subtitle, logoInfo) {
-    // Full-width dark band, edge to edge — the page itself stays plain white.
-    pdf.setFillColor(23, 27, 36); // --ink
+    // Light full-width band with dark text and a dark divider line.
+    pdf.setFillColor(244, 245, 240);
     pdf.rect(0, 0, layout.PAGE_W, layout.HEADER_H, "F");
+    pdf.setDrawColor(23, 27, 36);
+    pdf.setLineWidth(1.5);
+    pdf.line(0, layout.HEADER_H, layout.PAGE_W, layout.HEADER_H);
 
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(17);
-    pdf.setTextColor(239, 241, 234); // --paper (light text on the dark band)
+    pdf.setTextColor(23, 27, 36);
     pdf.text(title, layout.MARGIN, layout.HEADER_H / 2 - 2);
 
     if (subtitle) {
       pdf.setFont("helvetica", "normal");
       pdf.setFontSize(9.5);
-      pdf.setTextColor(176, 184, 199);
+      pdf.setTextColor(98, 107, 92);
       pdf.text(subtitle, layout.MARGIN, layout.HEADER_H / 2 + 15);
     }
 
@@ -2891,12 +2926,18 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
 
   /* ---------------- PDF export: preview modal ---------------- */
 
-  function openExportPreview(exportPlan, onConfirm) {
+  function openExportPreview(exportPlan, onConfirm, onModeChange) {
     var totalPages = 0;
     exportPlan.groups.forEach(function (g) { totalPages += g.pages.length; });
     var html =
       '<h3 class="modal-title">Pré-visualização do PDF</h3>' +
       '<p class="modal-text">' + totalPages + ' página(s) no total.</p>' +
+      '<div class="pdf-mode-row"><label for="pdfModeSelect">Ajuste do fluxo:</label>' +
+      '<select id="pdfModeSelect">' +
+      '<option value="auto"' + (pdfMode === "auto" ? " selected" : "") + '>Automático</option>' +
+      '<option value="fitHeight"' + (pdfMode === "fitHeight" ? " selected" : "") + '>Enquadrar na altura da página</option>' +
+      '<option value="onePage"' + (pdfMode === "onePage" ? " selected" : "") + '>Apenas uma página por diagrama</option>' +
+      '</select></div>' +
       '<div class="pdf-preview-scroll">';
     exportPlan.groups.forEach(function (g) {
       if (!g.pages.length) return;
@@ -2915,6 +2956,10 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
       '<button class="btn btn-primary" id="confirmPdfPreview">Baixar PDF</button>' +
       "</div>";
     openModal(html, "modal-wide");
+    document.getElementById("pdfModeSelect").onchange = function () {
+      pdfMode = this.value;
+      onModeChange();
+    };
     document.getElementById("cancelPdfPreview").onclick = closeModal;
     document.getElementById("confirmPdfPreview").onclick = function () {
       closeModal();
@@ -2939,51 +2984,41 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     return diagrams;
   }
 
+  function runPdfExport(diagrams, fileName) {
+    showToast("Preparando pré-visualização...");
+    var logoPromise = loadLogoImage();
+    function build() {
+      Promise.all([generateExportPlan(diagrams, pdfMode), logoPromise]).then(function (results) {
+        var exportPlan = results[0], logoInfo = results[1];
+        var hasPages = exportPlan.groups.some(function (g) { return g.pages.length; });
+        if (!hasPages) { showToast("Não foi possível gerar o PDF."); return; }
+        openExportPreview(exportPlan, function () {
+          try {
+            var pdf = assemblePDF(exportPlan, logoInfo);
+            if (!pdf) { showToast("Não foi possível gerar o PDF."); return; }
+            pdf.save(fileName);
+            showToast("PDF exportado.");
+          } catch (e) {
+            console.error("PDF export failed", e);
+            showToast("Não foi possível gerar o PDF.");
+          }
+        }, function () { showToast("Atualizando pré-visualização..."); build(); });
+      }).catch(function (e) { console.error(e); showToast("Não foi possível gerar a pré-visualização."); });
+    }
+    build();
+  }
+
   function exportCurrentDiagram() {
     if (!state.current) return;
-    showToast("Preparando pré-visualização...");
-    var title = state.current.name;
-    var diagrams = collectDiagramsForProcess(state.current);
-    Promise.all([generateExportPlan(diagrams), loadLogoImage()]).then(function (results) {
-      var exportPlan = results[0], logoInfo = results[1];
-      if (!exportPlan.groups[0] || !exportPlan.groups[0].pages.length) {
-        showToast("Não foi possível gerar o PDF.");
-        return;
-      }
-      openExportPreview(exportPlan, function () {
-        try {
-          var pdf = assemblePDF(exportPlan, logoInfo);
-          if (!pdf) { showToast("Não foi possível gerar o PDF."); return; }
-          pdf.save(sanitizeFileName(title) + ".pdf");
-          showToast("PDF exportado.");
-        } catch (e) {
-          console.error("PDF export failed", e);
-          showToast("Não foi possível gerar o PDF.");
-        }
-      });
-    }).catch(function () { showToast("Não foi possível gerar a pré-visualização."); });
+    runPdfExport(collectDiagramsForProcess(state.current), sanitizeFileName(state.current.name) + ".pdf");
   }
 
   function exportAllProcesses() {
     if (!state.processes.length) { showToast("Nenhum processo para exportar."); return; }
-    showToast("Preparando pré-visualização...");
     var sorted = state.processes.slice().sort(function (a, b) { return a.name.localeCompare(b.name); });
     var diagrams = [];
     sorted.forEach(function (p) { diagrams = diagrams.concat(collectDiagramsForProcess(p)); });
-    Promise.all([generateExportPlan(diagrams), loadLogoImage()]).then(function (results) {
-      var exportPlan = results[0], logoInfo = results[1];
-      openExportPreview(exportPlan, function () {
-        try {
-          var pdf = assemblePDF(exportPlan, logoInfo);
-          if (!pdf) { showToast("Não foi possível gerar o PDF."); return; }
-          pdf.save("processflow-todos-os-processos.pdf");
-          showToast("PDF exportado.");
-        } catch (e) {
-          console.error("PDF export failed", e);
-          showToast("Não foi possível gerar o PDF.");
-        }
-      });
-    }).catch(function () { showToast("Não foi possível gerar a pré-visualização."); });
+    runPdfExport(diagrams, "processflow-todos-os-processos.pdf");
   }
 
   function inlineComputedStyleVars(svgClone) {
@@ -3128,6 +3163,7 @@ textarea.auto-grow { min-height: 38px; resize: none; overflow: hidden; }
     initStorageAndLoad();
   });
 })();
+
 
 </script>
 </body>
